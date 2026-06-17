@@ -40,5 +40,28 @@ class TestAngleCalculations(unittest.TestCase):
         angulo = calcular_flexion_tronco(hombro, cadera)
         self.assertAlmostEqual(angulo, 90.0, places=2)
 
+    def test_neck_relative_flexion(self):
+        from detector import calcular_flexion_cuello
+        # Trunk is straight vertical: cadera [100, 500], hombro [100, 200]
+        # Neck is bent forward at 45 degrees: ear at [200, 100] (dx=100, dy=-100)
+        # Vector trunk = [0, -300] -> straight up
+        # Vector neck = [100, -100] -> 45 degrees from vertical
+        # Relative angle should be 45 degrees
+        cadera = [100, 500]
+        hombro = [100, 200]
+        oreja = [200, 100]
+        
+        angulo = calcular_flexion_cuello(cadera, hombro, oreja)
+        self.assertAlmostEqual(angulo, 45.0, places=2)
+
+        # Trunk is bent at 45 degrees: cadera [0, 100], hombro [100, 0] (dx=100, dy=-100)
+        # Neck is in line with trunk (straight): ear at [200, -100] (dx=100, dy=-100)
+        # Relative angle should be 0 degrees
+        cadera_bent = [0, 100]
+        hombro_bent = [100, 0]
+        oreja_inline = [200, -100]
+        angulo_inline = calcular_flexion_cuello(cadera_bent, hombro_bent, oreja_inline)
+        self.assertAlmostEqual(angulo_inline, 0.0, places=2)
+
 if __name__ == "__main__":
     unittest.main()

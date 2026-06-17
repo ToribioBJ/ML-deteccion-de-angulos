@@ -4,3 +4,4 @@ numpy
 customtkinter
 pillow
 requests
+openpyxl

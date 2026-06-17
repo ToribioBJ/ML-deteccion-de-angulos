@@ -11,4 +11,6 @@ dist/
 *.spec
 .gemini/
 .idea/
-.vscode/
+
+*.xlsx
+~$*.xlsx

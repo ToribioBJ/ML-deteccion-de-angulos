@@ -4,34 +4,46 @@ import queue
 import threading
 import time
 import math
-import tkinter as tk
+from datetime import datetime
+import openpyxl
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
-from PIL import Image, ImageTk
+from PIL import Image
 
 # Importamos nuestro detector modular
-from detector import PoseDetector, calcular_flexion_tronco, obtener_landmarks_tronco, dibujar_angulo_en_cadera
+from detector import (
+    PoseDetector, 
+    calcular_flexion_tronco, 
+    calcular_flexion_cuello,
+    obtener_landmarks_analisis, 
+    dibujar_analisis_completo
+)
 
 # Configuración estética global
 ctk.set_appearance_mode("dark")  # Modo oscuro por defecto
 ctk.set_default_color_theme("blue")  # Tema de color azul
 
-# Mapeo de colores amigables (Nombre -> BGR para OpenCV y HEX para CustomTkinter)
+# Mapeo de colores amigables (HEX para CustomTkinter)
 COLOR_PALETTE = {
-    "Celeste": {"bgr": (255, 191, 0), "hex": "#00bfff"},
-    "Verde Neón": {"bgr": (0, 255, 100), "hex": "#00ff64"},
-    "Rojo Coral": {"bgr": (80, 80, 255), "hex": "#ff5050"},
-    "Naranja": {"bgr": (0, 140, 255), "hex": "#ff8c00"},
-    "Amarillo": {"bgr": (0, 230, 255), "hex": "#ffe600"}
+    "Celeste": {"hex": "#00bfff"},
+    "Verde Neón": {"hex": "#00ff64"},
+    "Rojo Coral": {"hex": "#ff5050"},
+    "Naranja": {"hex": "#ff8c00"},
+    "Amarillo": {"hex": "#ffe600"}
 }
+
+# Colores predeterminados de análisis (BGR para OpenCV)
+MORADO = (128, 0, 128)
+AZUL_OSCURO = (139, 0, 0)
+BLANCO = (255, 255, 255)
+VERDE = (0, 255, 0)
 
 class VideoProcessorThread(threading.Thread):
     """Hilo secundario para procesar video sin congelar la interfaz."""
-    def __init__(self, file_path, detector, config_getter, result_queue):
+    def __init__(self, file_path, detector, result_queue):
         super().__init__()
         self.file_path = file_path
         self.detector = detector
-        self.config_getter = config_getter
         self.result_queue = result_queue
         
         self.running = True
@@ -59,57 +71,20 @@ class VideoProcessorThread(threading.Thread):
             ret, frame = self.cap.read()
             if not ret:
                 # Fin del video
-                self.result_queue.put(("EOF", None, None, None))
+                self.result_queue.put(("EOF", None, None))
                 break
                 
-            # Clonar el frame original por seguridad
-            processed_frame = frame.copy()
-            h, w, _ = processed_frame.shape
-            
-            # Obtener configuración actual de la GUI (de forma segura)
-            config = self.config_getter()
-            
             # Procesar frame con MediaPipe
             landmarks = self.detector.procesar_frame(frame)
             
-            angulo = None
-            lado_usado = None
-            
-            if landmarks:
-                # Obtener puntos del tronco
-                p_hombro, p_cadera, lado_usado = obtener_landmarks_tronco(
-                    landmarks, config["lado"], w, h
-                )
-                
-                # Calcular flexión
-                angulo = calcular_flexion_tronco(p_hombro, p_cadera)
-                
-                # Configuración de dibujo según paleta
-                color_gui = COLOR_PALETTE[config["color_name"]]["bgr"]
-                dibujo_config = {
-                    "color_vertical": (255, 100, 0), # Celeste/azul fijo para la vertical
-                    "color_tronco": color_gui,
-                    "color_arco": (0, 0, 255), # Rojo transparente para el sector angular
-                    "color_puntos": color_gui,
-                    "grosor_lineas": config["grosor"],
-                    "grosor_tronco": config["grosor"] + 2,
-                    "radio_hombro": config["radio_puntos"],
-                    "radio_cadera": int(config["radio_puntos"] * 3),
-                    "radio_arco": config["radio_arco"]
-                }
-                
-                # Dibujar en el frame
-                dibujar_angulo_en_cadera(processed_frame, p_cadera, p_hombro, angulo, dibujo_config)
-                
             # Colocar en la cola de resultados
-            # Si la cola está llena, removemos el más viejo para no saturar memoria en videos largos
             if self.result_queue.full():
                 try:
                     self.result_queue.get_nowait()
                 except queue.Empty:
                     pass
                     
-            self.result_queue.put(("FRAME", processed_frame, angulo, lado_usado))
+            self.result_queue.put(("FRAME", frame, landmarks))
             frame_idx += 1
             
             # Calcular tiempo de procesamiento y dormir el resto
@@ -151,10 +126,10 @@ class AngleDetectorApp(ctk.CTk):
         self.result_queue = queue.Queue(maxsize=15)
         
         # Estadísticas de sesión
-        self.max_angle = 0.0
-        self.current_angle = 0.0
         
-        # Frame actual en memoria para guardar
+        # Frame actual en memoria para guardar y redibujar
+        self.raw_current_frame = None
+        self.current_landmarks = None
         self.current_processed_frame = None
 
         # Configurar la UI
@@ -173,7 +148,7 @@ class AngleDetectorApp(ctk.CTk):
         # ---------------------------------------------------------------------
         self.sidebar = ctk.CTkFrame(self, width=320, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
-        self.sidebar.grid_rowconfigure(8, weight=1)  # Expandir el final para empujar hacia abajo
+        self.sidebar.grid_rowconfigure(14, weight=1)  # Spacer row weight
 
         # Título principal
         self.lbl_titulo = ctk.CTkLabel(
@@ -254,9 +229,44 @@ class AngleDetectorApp(ctk.CTk):
         self.sld_confianza.pack(fill="x", padx=5, pady=(0, 10))
         self.sld_confianza.set(0.5)
 
+        # Separador visual para registro
+        self.separador_excel = ctk.CTkFrame(self.sidebar, height=2, fg_color="#333333")
+        self.separador_excel.grid(row=6, column=0, padx=20, pady=15, sticky="ew")
+
+        # --- SECCIÓN: REGISTRO DE DATOS ---
+        self.lbl_seccion_excel = ctk.CTkLabel(
+            self.sidebar, 
+            text="Registro de Datos (Excel)", 
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.lbl_seccion_excel.grid(row=7, column=0, padx=20, pady=(0, 10), sticky="w")
+
+        self.frm_excel = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        self.frm_excel.grid(row=8, column=0, padx=20, pady=0, sticky="ew")
+
+        # Campo nombre
+        self.lbl_nombre = ctk.CTkLabel(self.frm_excel, text="Nombre de la Persona:")
+        self.lbl_nombre.pack(anchor="w", padx=5, pady=(0, 2))
+        self.ent_nombre = ctk.CTkEntry(
+            self.frm_excel, 
+            placeholder_text="Ej. Juan Pérez"
+        )
+        self.ent_nombre.pack(fill="x", padx=5, pady=(0, 10))
+
+        # Botón registrar
+        self.btn_registrar_excel = ctk.CTkButton(
+            self.frm_excel, 
+            text="Registrar en Excel", 
+            command=self.registrar_en_excel,
+            fg_color="#00bfff", 
+            hover_color="#008b8b",
+            font=ctk.CTkFont(weight="bold")
+        )
+        self.btn_registrar_excel.pack(fill="x", padx=5, pady=(0, 5))
+
         # Separador visual
         self.separador2 = ctk.CTkFrame(self.sidebar, height=2, fg_color="#333333")
-        self.separador2.grid(row=6, column=0, padx=20, pady=15, sticky="ew")
+        self.separador2.grid(row=9, column=0, padx=20, pady=15, sticky="ew")
 
         # --- SECCIÓN: ESTILO DE DIBUJO ---
         self.lbl_seccion_estilo = ctk.CTkLabel(
@@ -264,21 +274,10 @@ class AngleDetectorApp(ctk.CTk):
             text="Estilo de Visualización", 
             font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.lbl_seccion_estilo.grid(row=7, column=0, padx=20, pady=(0, 10), sticky="w")
+        self.lbl_seccion_estilo.grid(row=10, column=0, padx=20, pady=(0, 10), sticky="w")
 
         self.frm_estilos = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.frm_estilos.grid(row=8, column=0, padx=20, pady=0, sticky="nsew")
-
-        # Selector de Color
-        self.lbl_color = ctk.CTkLabel(self.frm_estilos, text="Color de Guías:")
-        self.lbl_color.pack(anchor="w", padx=5, pady=(0, 2))
-        self.opt_color = ctk.CTkOptionMenu(
-            self.frm_estilos, 
-            values=list(COLOR_PALETTE.keys()),
-            command=self.actualizar_analisis_imagen
-        )
-        self.opt_color.pack(fill="x", padx=5, pady=(0, 10))
-        self.opt_color.set("Verde Neón")
+        self.frm_estilos.grid(row=11, column=0, padx=20, pady=0, sticky="nsew")
 
         # Grosor de línea
         self.lbl_grosor = ctk.CTkLabel(self.frm_estilos, text="Grosor de Línea: 4 px")
@@ -308,7 +307,7 @@ class AngleDetectorApp(ctk.CTk):
 
         # --- SECCIÓN: CONTROLES DE REPRODUCCIÓN (PARA VIDEO) ---
         self.frm_controles_video = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.frm_controles_video.grid(row=9, column=0, padx=20, pady=15, sticky="ew")
+        self.frm_controles_video.grid(row=12, column=0, padx=20, pady=15, sticky="ew")
         
         self.btn_play = ctk.CTkButton(
             self.frm_controles_video, 
@@ -343,7 +342,7 @@ class AngleDetectorApp(ctk.CTk):
             font=ctk.CTkFont(weight="bold"),
             height=35
         )
-        self.btn_guardar.grid(row=10, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.btn_guardar.grid(row=13, column=0, padx=20, pady=(0, 20), sticky="ew")
 
         # ---------------------------------------------------------------------
         # COLUMNA DERECHA: VISUALIZADOR Y MÉTRICAS
@@ -367,23 +366,23 @@ class AngleDetectorApp(ctk.CTk):
         self.frm_dashboard.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 20))
         self.frm_dashboard.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
-        # Tarjeta 1: Ángulo Actual
-        self.card_actual = ctk.CTkFrame(self.frm_dashboard, fg_color="#222222", corner_radius=8)
-        self.card_actual.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        # Tarjeta 1: Ángulo del Tronco
+        self.card_tronco = ctk.CTkFrame(self.frm_dashboard, fg_color="#222222", corner_radius=8)
+        self.card_tronco.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         
-        lbl_t1 = ctk.CTkLabel(self.card_actual, text="ÁNGULO ACTUAL", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
+        lbl_t1 = ctk.CTkLabel(self.card_tronco, text="ÁNGULO TRONCO", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
         lbl_t1.pack(pady=(8, 0))
-        self.lbl_val_actual = ctk.CTkLabel(self.card_actual, text="--°", font=ctk.CTkFont(size=28, weight="bold"), text_color="white")
-        self.lbl_val_actual.pack(pady=(2, 8))
+        self.lbl_val_tronco_act = ctk.CTkLabel(self.card_tronco, text="--°", font=ctk.CTkFont(size=28, weight="bold"), text_color="white")
+        self.lbl_val_tronco_act.pack(pady=(2, 8))
 
-        # Tarjeta 2: Ángulo Máximo
-        self.card_max = ctk.CTkFrame(self.frm_dashboard, fg_color="#222222", corner_radius=8)
-        self.card_max.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        # Tarjeta 2: Ángulo del Cuello
+        self.card_cuello = ctk.CTkFrame(self.frm_dashboard, fg_color="#222222", corner_radius=8)
+        self.card_cuello.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
         
-        lbl_t2 = ctk.CTkLabel(self.card_max, text="FLEXIÓN MÁXIMA", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
+        lbl_t2 = ctk.CTkLabel(self.card_cuello, text="ÁNGULO CUELLO", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
         lbl_t2.pack(pady=(8, 0))
-        self.lbl_val_max = ctk.CTkLabel(self.card_max, text="0.0°", font=ctk.CTkFont(size=28, weight="bold"), text_color="#00bfff")
-        self.lbl_val_max.pack(pady=(2, 8))
+        self.lbl_val_cuello_act = ctk.CTkLabel(self.card_cuello, text="--°", font=ctk.CTkFont(size=28, weight="bold"), text_color="white")
+        self.lbl_val_cuello_act.pack(pady=(2, 8))
 
         # Tarjeta 3: Lado Detectado
         self.card_lado = ctk.CTkFrame(self.frm_dashboard, fg_color="#222222", corner_radius=8)
@@ -399,9 +398,13 @@ class AngleDetectorApp(ctk.CTk):
         self.card_estado.grid(row=0, column=3, padx=10, pady=10, sticky="nsew")
         
         lbl_t4 = ctk.CTkLabel(self.card_estado, text="ESTADO DE POSTURA", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
-        lbl_t4.pack(pady=(8, 0))
-        self.lbl_val_estado = ctk.CTkLabel(self.card_estado, text="Sin datos", font=ctk.CTkFont(size=16, weight="bold"), text_color="gray")
-        self.lbl_val_estado.pack(pady=(12, 12))
+        lbl_t4.pack(pady=(6, 0))
+        
+        self.lbl_val_estado_tronco = ctk.CTkLabel(self.card_estado, text="Tronco: --", font=ctk.CTkFont(size=12, weight="bold"), text_color="gray")
+        self.lbl_val_estado_tronco.pack(pady=(2, 0))
+        
+        self.lbl_val_estado_cuello = ctk.CTkLabel(self.card_estado, text="Cuello: --", font=ctk.CTkFont(size=12, weight="bold"), text_color="gray")
+        self.lbl_val_estado_cuello.pack(pady=(2, 6))
 
     # --- MANEJADORES DE EVENTOS DE CONFIGURACIÓN ---
     def on_confianza_change(self, val):
@@ -410,6 +413,10 @@ class AngleDetectorApp(ctk.CTk):
         try:
             self.detector.close()
             self.detector = PoseDetector(confidence_threshold=val)
+            # Re-detectar pose en el frame actual si está detenido/pausado
+            is_playing = self.video_thread and self.video_thread.is_alive() and not self.video_thread.paused
+            if self.raw_current_frame is not None and not is_playing:
+                self.current_landmarks = self.detector.procesar_frame(self.raw_current_frame)
             self.actualizar_analisis_imagen()
         except Exception as e:
             print(f"Error al cambiar confianza: {e}")
@@ -421,6 +428,15 @@ class AngleDetectorApp(ctk.CTk):
     def on_arco_change(self, val):
         self.lbl_arco.configure(text=f"Radio del Arco: {int(val)} px")
         self.actualizar_analisis_imagen()
+
+    def obtener_config_gui(self):
+        """Retorna los parámetros de la interfaz gráfica de forma segura."""
+        return {
+            "lado": self.opt_lado.get(),
+            "grosor": int(self.sld_grosor.get()),
+            "radio_puntos": int(self.sld_grosor.get() * 3),
+            "radio_arco": int(self.sld_arco.get())
+        }
 
     # --- MANEJADORES DE ARCHIVOS ---
     def seleccionar_archivo(self):
@@ -450,11 +466,15 @@ class AngleDetectorApp(ctk.CTk):
             self.btn_pause.configure(state="disabled")
             self.btn_guardar.configure(state="normal")
             
-            # Resetear estadísticas de sesión para nueva carga
-            self.max_angle = 0.0
-            self.lbl_val_max.configure(text="0.0°")
+            # Cargar imagen
             
-            self.actualizar_analisis_imagen()
+            frame = cv2.imread(file_path)
+            if frame is not None:
+                self.raw_current_frame = frame
+                self.current_landmarks = self.detector.procesar_frame(frame)
+                self.actualizar_analisis_imagen()
+            else:
+                self.lbl_viewer.configure(text="Error al leer la imagen seleccionada.")
         else:
             self.file_type = "video"
             self.btn_play.configure(state="normal")
@@ -465,7 +485,7 @@ class AngleDetectorApp(ctk.CTk):
             self.previsualizar_primer_frame()
 
     def previsualizar_primer_frame(self):
-        """Muestra el primer frame del video como vista previa estática."""
+        """Muestra el primer frame del video como vista previa estática con detección de pose."""
         if not self.current_filepath:
             return
             
@@ -474,66 +494,66 @@ class AngleDetectorApp(ctk.CTk):
         cap.release()
         
         if ret:
-            self.current_processed_frame = frame.copy()
-            self.mostrar_frame_en_viewer(frame)
+            self.raw_current_frame = frame
+            # Detectar pose en el primer frame para visualización inmediata
+            self.current_landmarks = self.detector.procesar_frame(frame)
+            self.actualizar_analisis_imagen()
             
-            # Reset estadísticas de video
-            self.max_angle = 0.0
-            self.current_angle = 0.0
-            self.lbl_val_actual.configure(text="--°", text_color="white")
-            self.lbl_val_max.configure(text="0.0°")
-            self.lbl_val_lado.configure(text="--")
-            self.lbl_val_estado.configure(text="Listo para reproducir", text_color="gray")
+            pass
         else:
             self.lbl_viewer.configure(text="Error al cargar la previsualización del video.")
 
     def actualizar_analisis_imagen(self, *args):
-        """Procesa y renderiza la imagen estática cargada usando los parámetros configurados."""
-        if self.file_type != "image" or not self.current_filepath:
+        """Dibuja sobre el frame actual usando los landmarks guardados y actualiza la GUI."""
+        if self.raw_current_frame is None:
             return
             
-        frame = cv2.imread(self.current_filepath)
-        if frame is None:
-            self.lbl_viewer.configure(text="Error al leer la imagen seleccionada.")
-            return
-            
-        h, w, _ = frame.shape
-        config = self.obtener_config_gui()
+        frame_a_dibujar = self.raw_current_frame.copy()
+        h, w, _ = frame_a_dibujar.shape
+        lado_config = self.opt_lado.get()
         
-        # Procesar
-        landmarks = self.detector.procesar_frame(frame)
-        
-        if landmarks:
-            p_hombro, p_cadera, lado_usado = obtener_landmarks_tronco(landmarks, config["lado"], w, h)
-            angulo = calcular_flexion_tronco(p_hombro, p_cadera)
+        if self.current_landmarks:
+            p_hombro, p_cadera, p_oreja, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
+            angulo_tronco = calcular_flexion_tronco(p_hombro, p_cadera)
+            angulo_cuello = calcular_flexion_cuello(p_cadera, p_hombro, p_oreja)
             
-            # Dibujar
-            color_gui = COLOR_PALETTE[config["color_name"]]["bgr"]
+            # Obtener configuración de estilo
+            config = self.obtener_config_gui()
+            
             dibujo_config = {
-                "color_vertical": (255, 100, 0), # Celeste/azul fijo
-                "color_tronco": color_gui,
-                "color_arco": (0, 0, 255),
-                "color_puntos": color_gui,
+                "color_vertical": MORADO,           # Morado
+                "color_tronco": MORADO,             # Morado
+                "color_cuello": MORADO,             # Morado
+                "color_arco": VERDE,                # Verde
+                "color_puntos": AZUL_OSCURO,        # Azul Oscuro
+                "color_texto": BLANCO,              # Blanco
                 "grosor_lineas": config["grosor"],
                 "grosor_tronco": config["grosor"] + 2,
-                "radio_hombro": config["radio_puntos"],
-                "radio_cadera": int(config["radio_puntos"] * 3),
-                "radio_arco": config["radio_arco"]
+                "grosor_cuello": config["grosor"] + 1,
+                "grosor_borde_arco": max(1, config["grosor"] - 1),
+                "radio_arco": config["radio_arco"],
+                "radio_arco_cuello": int(config["radio_arco"] * 0.77),
+                "radio_ear": 6,                     # Círculo pequeño para la oreja
+                "radio_hombro": 22,                 # Tamaño suficiente para que quepa el texto
+                "radio_cadera": 22,                 # Tamaño suficiente para que quepa el texto
+                "transparencia_arco": 0.28,         # Opacidad de 28%
+                "dibujar_texto": True
             }
             
-            dibujar_angulo_en_cadera(frame, p_cadera, p_hombro, angulo, dibujo_config)
+            dibujar_analisis_completo(frame_a_dibujar, p_cadera, p_hombro, p_oreja, angulo_tronco, angulo_cuello, config=dibujo_config)
             
-            # Guardar frame procesado
-            self.current_processed_frame = frame
+            # Guardar frame procesado actual en memoria
+            self.current_processed_frame = frame_a_dibujar
             
             # Actualizar métricas
-            self.actualizar_metricas_ui(angulo, lado_usado)
+            self.actualizar_metricas_ui(angulo_tronco, angulo_cuello, lado_usado)
         else:
-            self.current_processed_frame = frame
-            self.mostrar_frame_en_viewer(frame)
-            self.lbl_val_actual.configure(text="--°", text_color="white")
+            self.current_processed_frame = frame_a_dibujar
+            self.lbl_val_tronco_act.configure(text="--°", text_color="white")
+            self.lbl_val_cuello_act.configure(text="--°", text_color="white")
             self.lbl_val_lado.configure(text="--")
-            self.lbl_val_estado.configure(text="No se detectó pose", text_color="#ff5050")
+            self.lbl_val_estado_tronco.configure(text="Tronco: Sin pose", text_color="#ff5050")
+            self.lbl_val_estado_cuello.configure(text="Cuello: Sin pose", text_color="#ff5050")
             
         self.mostrar_frame_en_viewer(self.current_processed_frame)
 
@@ -549,12 +569,12 @@ class AngleDetectorApp(ctk.CTk):
                 self.btn_play.configure(state="disabled")
                 self.btn_pause.configure(state="normal")
                 self.btn_guardar.configure(state="disabled")
-                self.lbl_val_estado.configure(text="Analizando...", text_color="#00bfff")
+                self.sld_confianza.configure(state="disabled")
+                self.lbl_val_estado_tronco.configure(text_color="white")
+                self.lbl_val_estado_cuello.configure(text_color="white")
             return
             
-        # Reiniciar estadísticas para la reproducción
-        self.max_angle = 0.0
-        self.lbl_val_max.configure(text="0.0°")
+        # Iniciar reproducción
         
         # Limpiar cola
         while not self.result_queue.empty():
@@ -567,7 +587,6 @@ class AngleDetectorApp(ctk.CTk):
         self.video_thread = VideoProcessorThread(
             file_path=self.current_filepath,
             detector=self.detector,
-            config_getter=self.obtener_config_gui,
             result_queue=self.result_queue
         )
         self.video_thread.start()
@@ -575,6 +594,7 @@ class AngleDetectorApp(ctk.CTk):
         self.btn_play.configure(state="disabled")
         self.btn_pause.configure(state="normal")
         self.btn_guardar.configure(state="disabled")
+        self.sld_confianza.configure(state="disabled")
 
     def pause_video(self):
         if self.video_thread and self.video_thread.is_alive():
@@ -582,7 +602,9 @@ class AngleDetectorApp(ctk.CTk):
             self.btn_play.configure(state="normal", text="Reanudar")
             self.btn_pause.configure(state="disabled")
             self.btn_guardar.configure(state="normal")
-            self.lbl_val_estado.configure(text="Pausado", text_color="gray")
+            self.sld_confianza.configure(state="normal")
+            self.lbl_val_estado_tronco.configure(text="Tronco: Pausado", text_color="gray")
+            self.lbl_val_estado_cuello.configure(text="Cuello: Pausado", text_color="gray")
 
     def stop_video_thread(self):
         """Detiene de forma segura el hilo de reproducción de video."""
@@ -593,32 +615,31 @@ class AngleDetectorApp(ctk.CTk):
         self.btn_play.configure(text="Reproducir", state="disabled")
         self.btn_pause.configure(state="disabled")
         self.btn_guardar.configure(state="disabled")
+        self.sld_confianza.configure(state="normal")
 
     def poll_results(self):
         """Monitorea la cola de resultados en el hilo principal para actualizar la GUI."""
         try:
             # Intentar vaciar tantos frames listos como haya (para mantenerse al día)
             while True:
-                status, frame, angulo, lado = self.result_queue.get_nowait()
+                item = self.result_queue.get_nowait()
+                status = item[0]
                 
                 if status == "EOF":
                     # El video terminó
                     self.stop_video_thread()
-                    self.lbl_val_estado.configure(text="Análisis finalizado", text_color="#10b981")
+                    self.lbl_val_estado_tronco.configure(text="Tronco: Finalizado", text_color="#10b981")
+                    self.lbl_val_estado_cuello.configure(text="Cuello: Finalizado", text_color="#10b981")
                     if self.current_filepath:
                         self.btn_play.configure(state="normal", text="Reproducir de nuevo")
                     break
                     
-                if status == "FRAME" and frame is not None:
-                    self.current_processed_frame = frame
-                    self.mostrar_frame_en_viewer(frame)
-                    
-                    if angulo is not None:
-                        self.actualizar_metricas_ui(angulo, lado)
-                    else:
-                        self.lbl_val_actual.configure(text="--°", text_color="white")
-                        self.lbl_val_lado.configure(text="--")
-                        self.lbl_val_estado.configure(text="Sin pose visible", text_color="gray")
+                if status == "FRAME":
+                    _, frame, landmarks = item
+                    if frame is not None:
+                        self.raw_current_frame = frame
+                        self.current_landmarks = landmarks
+                        self.actualizar_analisis_imagen()
                         
         except queue.Empty:
             pass
@@ -627,42 +648,46 @@ class AngleDetectorApp(ctk.CTk):
         self.after(15, self.poll_results)
 
     # --- MÉTODOS AUXILIARES ---
-    def obtener_config_gui(self):
-        """Retorna los parámetros de la interfaz gráfica de forma segura para los hilos."""
-        return {
-            "lado": self.opt_lado.get(),
-            "color_name": self.opt_color.get(),
-            "grosor": int(self.sld_grosor.get()),
-            "radio_puntos": int(self.sld_grosor.get() * 3),  # Proporcional al grosor
-            "radio_arco": int(self.sld_arco.get())
-        }
 
-    def actualizar_metricas_ui(self, angulo, lado):
+    def actualizar_metricas_ui(self, angulo_tronco, angulo_cuello, lado):
         """Actualiza las tarjetas de datos con el ángulo, umbral de color y estado."""
-        self.current_angle = angulo
-        if angulo > self.max_angle:
-            self.max_angle = angulo
-            self.lbl_val_max.configure(text=f"{self.max_angle:.1f}°")
-            
-        self.lbl_val_actual.configure(text=f"{angulo:.1f}°")
+        self.lbl_val_tronco_act.configure(text=f"{angulo_tronco:.2f}°")
+        self.lbl_val_cuello_act.configure(text=f"{angulo_cuello:.2f}°")
         self.lbl_val_lado.configure(text=str(lado))
         
         # Lógica de color y evaluación según inclinación de la espalda
         # 0 - 15°: Postura Correcta (Verde)
         # 15 - 40°: Flexión Moderada (Naranja)
         # > 40°: Flexión Elevada / Riesgo (Rojo)
-        if angulo < 15.0:
-            color_alerta = COLOR_PALETTE["Verde Neón"]["hex"]
-            estado_texto = "Postura Erguida"
-        elif angulo < 40.0:
-            color_alerta = COLOR_PALETTE["Naranja"]["hex"]
-            estado_texto = "Flexión Moderada"
+        if angulo_tronco < 15.0:
+            color_tronco = COLOR_PALETTE["Verde Neón"]["hex"]
+            estado_tronco = "Tronco: Erguido"
+        elif angulo_tronco < 40.0:
+            color_tronco = COLOR_PALETTE["Naranja"]["hex"]
+            estado_tronco = "Tronco: Flexión Mod."
         else:
-            color_alerta = COLOR_PALETTE["Rojo Coral"]["hex"]
-            estado_texto = "Flexión Pronunciada"
+            color_tronco = COLOR_PALETTE["Rojo Coral"]["hex"]
+            estado_tronco = "Tronco: Inclinado"
             
-        self.lbl_val_actual.configure(text_color=color_alerta)
-        self.lbl_val_estado.configure(text=estado_texto, text_color=color_alerta)
+        self.lbl_val_tronco_act.configure(text_color=color_tronco)
+        self.lbl_val_estado_tronco.configure(text=estado_tronco, text_color=color_tronco)
+
+        # Lógica de color y evaluación según inclinación del cuello
+        # 0 - 10°: Postura Correcta (Verde)
+        # 10 - 20°: Flexión Moderada (Naranja)
+        # > 20°: Flexión Elevada / Riesgo (Rojo)
+        if angulo_cuello < 10.0:
+            color_cuello = COLOR_PALETTE["Verde Neón"]["hex"]
+            estado_cuello = "Cuello: Erguido"
+        elif angulo_cuello < 20.0:
+            color_cuello = COLOR_PALETTE["Naranja"]["hex"]
+            estado_cuello = "Cuello: Flexión Mod."
+        else:
+            color_cuello = COLOR_PALETTE["Rojo Coral"]["hex"]
+            estado_cuello = "Cuello: Inclinado"
+            
+        self.lbl_val_cuello_act.configure(text_color=color_cuello)
+        self.lbl_val_estado_cuello.configure(text=estado_cuello, text_color=color_cuello)
 
     def mostrar_frame_en_viewer(self, frame):
         """Adapta la imagen OpenCV BGR para mostrarla centrada en el visor de CustomTkinter."""
@@ -697,13 +722,11 @@ class AngleDetectorApp(ctk.CTk):
         new_w = max(10, new_w)
         new_h = max(10, new_h)
         
-        # Redimensionar usando Pillow
-        pil_image_resized = pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        
-        # Convertir a CTkImage
+        # Convertir a CTkImage usando la imagen en resolución original
+        # para que CustomTkinter mantenga la nitidez (HD) al aplicar escala DPI
         ctk_img = ctk.CTkImage(
-            light_image=pil_image_resized,
-            dark_image=pil_image_resized,
+            light_image=pil_image,
+            dark_image=pil_image,
             size=(new_w, new_h)
         )
         
@@ -728,6 +751,92 @@ class AngleDetectorApp(ctk.CTk):
                 messagebox.showinfo("Éxito", f"Captura guardada correctamente en:\n{save_path}")
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo guardar la imagen:\n{e}")
+
+    def registrar_en_excel(self):
+        """Registra los ángulos actuales y el nombre de la persona en un archivo Excel."""
+        nombre = self.ent_nombre.get().strip()
+        if not nombre:
+            messagebox.showwarning("Campo Vacío", "Por favor, ingrese el nombre de la persona para realizar el registro.")
+            return
+
+        if self.current_landmarks is None or self.raw_current_frame is None:
+            messagebox.showwarning("Sin Detección", "No hay datos de pose detectados para registrar. Asegúrese de cargar un archivo con una persona visible.")
+            return
+
+        # Calcular los valores actuales para registrar
+        h, w, _ = self.raw_current_frame.shape
+        lado_config = self.opt_lado.get()
+        p_hombro, p_cadera, p_oreja, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
+        angulo_tronco = calcular_flexion_tronco(p_hombro, p_cadera)
+        angulo_cuello = calcular_flexion_cuello(p_cadera, p_hombro, p_oreja)
+
+        # Determinar estados
+        if angulo_tronco < 15.0:
+            estado_tronco = "Erguido"
+        elif angulo_tronco < 40.0:
+            estado_tronco = "Flexión Moderada"
+        else:
+            estado_tronco = "Inclinado (Riesgo)"
+
+        if angulo_cuello < 10.0:
+            estado_cuello = "Erguido"
+        elif angulo_cuello < 20.0:
+            estado_cuello = "Flexión Moderada"
+        else:
+            estado_cuello = "Inclinado (Riesgo)"
+
+        # Obtener nombre del archivo de origen
+        archivo_origen = os.path.basename(self.current_filepath) if self.current_filepath else "Previsualización / Imagen"
+
+        # Fecha y hora actual
+        fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Nombre del archivo Excel a guardar
+        excel_path = "registro_posturas.xlsx"
+
+        try:
+            if os.path.exists(excel_path):
+                # Abrir archivo existente
+                workbook = openpyxl.load_workbook(excel_path)
+                sheet = workbook.active
+            else:
+                # Crear nuevo archivo y agregar cabeceras
+                workbook = openpyxl.Workbook()
+                sheet = workbook.active
+                sheet.title = "Registro de Posturas"
+                sheet.append([
+                    "Fecha y Hora",
+                    "Nombre de la Persona",
+                    "Ángulo Tronco (Grados)",
+                    "Ángulo Cuello (Grados)",
+                    "Lado del Cuerpo Medido",
+                    "Estado del Tronco",
+                    "Estado del Cuello",
+                    "Archivo de Origen"
+                ])
+
+            # Añadir los datos del registro
+            sheet.append([
+                fecha_hora,
+                nombre,
+                round(angulo_tronco, 2),
+                round(angulo_cuello, 2),
+                lado_usado,
+                estado_tronco,
+                estado_cuello,
+                archivo_origen
+            ])
+
+            # Guardar el libro de trabajo
+            workbook.save(excel_path)
+            workbook.close()
+
+            # Limpiar la caja de texto tras registrar con éxito
+            self.ent_nombre.delete(0, 'end')
+
+            messagebox.showinfo("Éxito", f"Datos del paciente '{nombre}' registrados correctamente en:\n{os.path.abspath(excel_path)}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo escribir en el archivo de Excel:\n{e}\n\nAsegúrese de que el archivo no esté abierto en otra aplicación.")
 
     def on_closing(self):
         """Maneja el cierre seguro de la ventana deteniendo los hilos."""
