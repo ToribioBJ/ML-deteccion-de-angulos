@@ -144,9 +144,9 @@ def obtener_landmarks_analisis(landmarks, lado, ancho, alto):
         oreja_lm = landmarks[idx_oreja_der]
         lado_detectado = "Derecho"
 
-    p_hombro = [int(hombro_lm.x * ancho), int(hombro_lm.y * alto)]
-    p_cadera = [int(cadera_lm.x * ancho), int(cadera_lm.y * alto)]
-    p_oreja = [int(oreja_lm.x * ancho), int(oreja_lm.y * alto)]
+    p_hombro = [hombro_lm.x * ancho, hombro_lm.y * alto]
+    p_cadera = [cadera_lm.x * ancho, cadera_lm.y * alto]
+    p_oreja = [oreja_lm.x * ancho, oreja_lm.y * alto]
     
     return p_hombro, p_cadera, p_oreja, lado_detectado
 
@@ -179,9 +179,10 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, angulo_tronco, angu
         default_config.update(config)
         
     cfg = default_config
-    xc, yc = cadera
-    xh, yh = hombro
-    xo, yo = oreja
+    # Redondear coordenadas a enteros para las funciones de dibujo de OpenCV
+    xc, yc = int(round(cadera[0])), int(round(cadera[1]))
+    xh, yh = int(round(hombro[0])), int(round(hombro[1]))
+    xo, yo = int(round(oreja[0])), int(round(oreja[1]))
 
     # --- 1. DIBUJAR TRONCO ---
     dist_tronco = int(math.hypot(xh - xc, yh - yc))
@@ -255,14 +256,14 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, angulo_tronco, angu
     # Punto cadera (grande)
     cv2.circle(imagen, (xc, yc), cfg["radio_cadera"], cfg["color_puntos"], -1)
 
-    # --- 4. TEXTOS DE ÁNGULOS (con 2 decimales) ---
+    # --- 4. TEXTOS DE ÁNGULOS (como enteros redondeados) ---
     if cfg.get("dibujar_texto", False):
         # Texto tronco en cadera
-        texto_tronco = f"{angulo_tronco:.2f}"
+        texto_tronco = f"{int(round(angulo_tronco))}"
         (tw_t, th_t), _ = cv2.getTextSize(texto_tronco, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 2)
         cv2.putText(imagen, texto_tronco, (int(xc - tw_t / 2), int(yc + th_t / 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, cfg["color_texto"], 2, cv2.LINE_AA)
 
         # Texto cuello en hombro
-        texto_cuello = f"{angulo_cuello:.2f}"
+        texto_cuello = f"{int(round(angulo_cuello))}"
         (tw_c, th_c), _ = cv2.getTextSize(texto_cuello, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 2)
         cv2.putText(imagen, texto_cuello, (int(xh - tw_c / 2), int(yh + th_c / 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, cfg["color_texto"], 2, cv2.LINE_AA)
