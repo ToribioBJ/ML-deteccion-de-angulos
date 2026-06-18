@@ -1,6 +1,5 @@
 import unittest
-import numpy as np
-from detector import calcular_flexion_tronco
+from detector import calcular_flexion_tronco, calcular_flexion_hombro
 
 class TestAngleCalculations(unittest.TestCase):
     def test_vertical_alignment(self):
@@ -62,6 +61,28 @@ class TestAngleCalculations(unittest.TestCase):
         oreja_inline = [200, -100]
         angulo_inline = calcular_flexion_cuello(cadera_bent, hombro_bent, oreja_inline)
         self.assertAlmostEqual(angulo_inline, 0.0, places=2)
+
+    def test_shoulder_flexion(self):
+        # 1. Straight down (parallel): cadera and codo below hombro
+        cadera = [100, 500]
+        hombro = [100, 200]
+        codo = [100, 300]
+        angulo = calcular_flexion_hombro(cadera, hombro, codo)
+        self.assertAlmostEqual(angulo, 0.0, places=2)
+
+        # 2. Arm raised horizontal (90 degrees)
+        cadera2 = [100, 500]
+        hombro2 = [100, 200]
+        codo2 = [200, 200]
+        angulo2 = calcular_flexion_hombro(cadera2, hombro2, codo2)
+        self.assertAlmostEqual(angulo2, 90.0, places=2)
+
+        # 3. Arm raised vertical (180 degrees)
+        cadera3 = [100, 500]
+        hombro3 = [100, 200]
+        codo3 = [100, 100]
+        angulo3 = calcular_flexion_hombro(cadera3, hombro3, codo3)
+        self.assertAlmostEqual(angulo3, 180.0, places=2)
 
 if __name__ == "__main__":
     unittest.main()

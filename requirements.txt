@@ -3,5 +3,4 @@ opencv-python
 numpy
 customtkinter
 pillow
-requests
 openpyxl
