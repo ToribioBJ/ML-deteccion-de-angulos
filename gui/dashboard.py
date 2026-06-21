@@ -13,88 +13,79 @@ class DashboardFrame(ctk.CTkFrame):
     """Componente para mostrar las métricas de análisis en tarjetas independientes."""
     def __init__(self, parent, **kwargs):
         super().__init__(parent, fg_color="#181818", height=140, **kwargs)
-        self.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        self.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
 
         # Tarjeta 1: Ángulo del Tronco
         self.card_tronco = ctk.CTkFrame(self, fg_color="#222222", corner_radius=8)
         self.card_tronco.grid(row=0, column=0, padx=8, pady=10, sticky="nsew")
         
         lbl_t1 = ctk.CTkLabel(self.card_tronco, text="ÁNGULO TRONCO", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
-        lbl_t1.pack(pady=(8, 0))
+        lbl_t1.pack(pady=(15, 0))
         self.lbl_val_tronco_act = ctk.CTkLabel(self.card_tronco, text="--°", font=ctk.CTkFont(size=28, weight="bold"), text_color="white")
-        self.lbl_val_tronco_act.pack(pady=(2, 2))
-        self.lbl_time_tronco = ctk.CTkLabel(self.card_tronco, text="0.0s", font=ctk.CTkFont(size=11), text_color="gray")
-        self.lbl_time_tronco.pack(pady=(0, 8))
+        self.lbl_val_tronco_act.pack(pady=(5, 15))
 
         # Tarjeta 2: Ángulo de la Cabeza
         self.card_cabeza = ctk.CTkFrame(self, fg_color="#222222", corner_radius=8)
         self.card_cabeza.grid(row=0, column=1, padx=8, pady=10, sticky="nsew")
         
         lbl_t2 = ctk.CTkLabel(self.card_cabeza, text="ÁNGULO CABEZA", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
-        lbl_t2.pack(pady=(8, 0))
+        lbl_t2.pack(pady=(15, 0))
         self.lbl_val_cabeza_act = ctk.CTkLabel(self.card_cabeza, text="--°", font=ctk.CTkFont(size=28, weight="bold"), text_color="white")
-        self.lbl_val_cabeza_act.pack(pady=(2, 2))
-        self.lbl_time_cabeza = ctk.CTkLabel(self.card_cabeza, text="0.0s", font=ctk.CTkFont(size=11), text_color="gray")
-        self.lbl_time_cabeza.pack(pady=(0, 8))
+        self.lbl_val_cabeza_act.pack(pady=(5, 15))
 
         # Tarjeta 3: Ángulo del Cuello
         self.card_cuello = ctk.CTkFrame(self, fg_color="#222222", corner_radius=8)
         self.card_cuello.grid(row=0, column=2, padx=8, pady=10, sticky="nsew")
         
         lbl_t3 = ctk.CTkLabel(self.card_cuello, text="ÁNGULO CUELLO", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
-        lbl_t3.pack(pady=(8, 0))
+        lbl_t3.pack(pady=(15, 0))
         self.lbl_val_cuello_act = ctk.CTkLabel(self.card_cuello, text="--°", font=ctk.CTkFont(size=28, weight="bold"), text_color="white")
-        self.lbl_val_cuello_act.pack(pady=(2, 2))
-        self.lbl_time_cuello = ctk.CTkLabel(self.card_cuello, text="0.0s", font=ctk.CTkFont(size=11), text_color="gray")
-        self.lbl_time_cuello.pack(pady=(0, 8))
+        self.lbl_val_cuello_act.pack(pady=(5, 15))
 
-        # Tarjeta 4: Ángulo del Hombro
+        # Tarjeta 4: Ángulo del Brazo
         self.card_hombro = ctk.CTkFrame(self, fg_color="#222222", corner_radius=8)
         self.card_hombro.grid(row=0, column=3, padx=8, pady=10, sticky="nsew")
         
-        lbl_t4 = ctk.CTkLabel(self.card_hombro, text="ÁNGULO HOMBRO", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
-        lbl_t4.pack(pady=(8, 0))
+        lbl_t4 = ctk.CTkLabel(self.card_hombro, text="ÁNGULO BRAZO", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
+        lbl_t4.pack(pady=(15, 0))
         self.lbl_val_hombro_act = ctk.CTkLabel(self.card_hombro, text="--°", font=ctk.CTkFont(size=28, weight="bold"), text_color="white")
-        self.lbl_val_hombro_act.pack(pady=(2, 2))
-        self.lbl_time_hombro = ctk.CTkLabel(self.card_hombro, text="0.0s", font=ctk.CTkFont(size=11), text_color="gray")
-        self.lbl_time_hombro.pack(pady=(0, 8))
+        self.lbl_val_hombro_act.pack(pady=(5, 15))
 
         # Tarjeta 5: Lado Detectado
         self.card_lado = ctk.CTkFrame(self, fg_color="#222222", corner_radius=8)
         self.card_lado.grid(row=0, column=4, padx=8, pady=10, sticky="nsew")
         
         lbl_t5 = ctk.CTkLabel(self.card_lado, text="LADO LEÍDO", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
-        lbl_t5.pack(pady=(8, 0))
+        lbl_t5.pack(pady=(15, 0))
         self.lbl_val_lado = ctk.CTkLabel(self.card_lado, text="--", font=ctk.CTkFont(size=22, weight="bold"), text_color="white")
-        self.lbl_val_lado.pack(pady=(8, 8))
+        self.lbl_val_lado.pack(pady=(11, 15))
 
-    def reset_valores(self):
+        # Tarjeta 6: Tiempo del conjunto / postura actual
+        self.card_tiempo = ctk.CTkFrame(self, fg_color="#222222", corner_radius=8)
+        self.card_tiempo.grid(row=0, column=5, padx=8, pady=10, sticky="nsew")
+        
+        lbl_t6 = ctk.CTkLabel(self.card_tiempo, text="TIEMPO POSTURA", font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
+        lbl_t6.pack(pady=(15, 0))
+        self.lbl_val_tiempo = ctk.CTkLabel(self.card_tiempo, text="0.00s", font=ctk.CTkFont(size=28, weight="bold"), text_color="white")
+        self.lbl_val_tiempo.pack(pady=(5, 15))
+
+    def reset_valores(self, tiempo_actual=0.0):
         """Limpia las etiquetas del dashboard."""
         self.lbl_val_tronco_act.configure(text="--°", text_color="white")
-        self.lbl_time_tronco.configure(text="0.0s")
         self.lbl_val_cabeza_act.configure(text="--°", text_color="white")
-        self.lbl_time_cabeza.configure(text="0.0s")
         self.lbl_val_cuello_act.configure(text="--°", text_color="white")
-        self.lbl_time_cuello.configure(text="0.0s")
         self.lbl_val_hombro_act.configure(text="--°", text_color="white")
-        self.lbl_time_hombro.configure(text="0.0s")
         self.lbl_val_lado.configure(text="--")
+        self.lbl_val_tiempo.configure(text=f"{tiempo_actual:.2f}s")
 
-    def actualizar_metricas(self, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado, t_tronco, t_cabeza, t_cuello, t_hombro):
+    def actualizar_metricas(self, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado, tiempo_actual):
         """Actualiza las tarjetas de datos con el ángulo, color y tiempo correspondiente."""
         self.lbl_val_tronco_act.configure(text=f"{int(round(angulo_tronco))}°")
-        self.lbl_time_tronco.configure(text=f"{t_tronco:.5f}s")
-        
         self.lbl_val_cabeza_act.configure(text=f"{int(round(angulo_cabeza))}°")
-        self.lbl_time_cabeza.configure(text=f"{t_cabeza:.5f}s")
-
         self.lbl_val_cuello_act.configure(text=f"{int(round(angulo_cuello))}°")
-        self.lbl_time_cuello.configure(text=f"{t_cuello:.5f}s")
-        
         self.lbl_val_hombro_act.configure(text=f"{int(round(angulo_hombro))}°")
-        self.lbl_time_hombro.configure(text=f"{t_hombro:.5f}s")
-        
         self.lbl_val_lado.configure(text=str(lado))
+        self.lbl_val_tiempo.configure(text=f"{tiempo_actual:.2f}s")
         
         # Lógica de color según inclinación de la espalda
         if angulo_tronco < 15.0:
@@ -105,7 +96,7 @@ class DashboardFrame(ctk.CTkFrame):
             color_tronco = COLOR_PALETTE["Rojo Coral"]["hex"]
         self.lbl_val_tronco_act.configure(text_color=color_tronco)
 
-        # Cabeza se mantiene neutral o rosado/blanco (se configura a celeste para diferenciar)
+        # Cabeza se mantiene neutral
         self.lbl_val_cabeza_act.configure(text_color="white")
 
         # Lógica de color según inclinación del cuello

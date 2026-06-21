@@ -1,267 +1,60 @@
 class PostureTracker:
-    """Clase para realizar el seguimiento del tiempo de permanencia y segmentos de postura."""
+    """Clase para realizar el seguimiento de las mediciones posturales por frame del video."""
     def __init__(self):
         self.reset()
 
     def reset(self):
-        """Reinicia el historial de segmentos y el segmento activo."""
-        # Historial de segmentos independientes por cada ángulo
-        self.tronco_segments = []
-        self.cabeza_segments = []
-        self.cuello_segments = []
-        self.hombro_segments = []
+        """Reinicia el historial de frames analizados y el estado de la postura activa."""
+        self.frames_data = []
+        self.last_angles = None  # Tupla (tronco, cabeza, cuello, hombro, lado_usado)
+        self.current_posture_count = 0
+
+    def update_pose(self, frame_idx, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado_usado, fps=30.0):
+        """Registra la postura medida en un frame del video y calcula la duración de la postura activa."""
+        t_int = int(round(angulo_tronco))
+        c_int = int(round(angulo_cabeza))
+        cu_int = int(round(angulo_cuello))
+        h_int = int(round(angulo_hombro))
         
-        # Segmento activo independiente por cada ángulo
-        # Cada segmento tiene la forma: {"valor": int, "t_inicio": float, "t_fin": float}
-        self.active_tronco = None
-        self.active_cabeza = None
-        self.active_cuello = None
-        self.active_hombro = None
+        current_angles = (t_int, c_int, cu_int, h_int, lado_usado)
         
-        # Lado activo actual
-        self.active_lado = None
+        if self.last_angles == current_angles:
+            self.current_posture_count += 1
+        else:
+            self.last_angles = current_angles
+            self.current_posture_count = 1
+            
+        posture_duration = self.current_posture_count * (1.0 / fps)
+
+        self.frames_data.append({
+            "frame_idx": frame_idx,
+            "angulo_tronco": t_int,
+            "angulo_cabeza": c_int,
+            "angulo_cuello": cu_int,
+            "angulo_hombro": h_int,
+            "lado_usado": lado_usado,
+            "tiempo_postura": posture_duration,
+            "frames_acumulados": self.current_posture_count
+        })
+        return posture_duration
+
+    def update_no_pose(self, frame_idx):
+        """Registra un frame del video donde no se detectó postura y reinicia la postura activa."""
+        self.last_angles = None
+        self.current_posture_count = 0
         
-        # Tiempos de permanencia actuales
-        self.tiempo_tronco = 0.0
-        self.tiempo_cabeza = 0.0
-        self.tiempo_cuello = 0.0
-        self.tiempo_hombro = 0.0
-
-    def update_pose(self, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado_usado, t):
-        """Actualiza los segmentos activos de cada ángulo de manera independiente con los datos de una pose detectada."""
-        angulo_tronco_int = int(round(angulo_tronco))
-        angulo_cabeza_int = int(round(angulo_cabeza))
-        angulo_cuello_int = int(round(angulo_cuello))
-        angulo_hombro_int = int(round(angulo_hombro))
-        
-        self.active_lado = lado_usado
-
-        # 1. Actualizar Tronco
-        if self.active_tronco is None:
-            self.active_tronco = {
-                "valor": angulo_tronco_int,
-                "t_inicio": t,
-                "t_fin": t
-            }
-            self.tiempo_tronco = 0.0
-        else:
-            if self.active_tronco["valor"] == angulo_tronco_int:
-                self.active_tronco["t_fin"] = t
-                self.tiempo_tronco = t - self.active_tronco["t_inicio"]
-            else:
-                self.active_tronco["duracion"] = self.active_tronco["t_fin"] - self.active_tronco["t_inicio"]
-                self.tronco_segments.append(self.active_tronco)
-                self.active_tronco = {
-                    "valor": angulo_tronco_int,
-                    "t_inicio": self.active_tronco["t_fin"],
-                    "t_fin": t
-                }
-                self.tiempo_tronco = t - self.active_tronco["t_inicio"]
-
-        # 2. Actualizar Cabeza
-        if self.active_cabeza is None:
-            self.active_cabeza = {
-                "valor": angulo_cabeza_int,
-                "t_inicio": t,
-                "t_fin": t
-            }
-            self.tiempo_cabeza = 0.0
-        else:
-            if self.active_cabeza["valor"] == angulo_cabeza_int:
-                self.active_cabeza["t_fin"] = t
-                self.tiempo_cabeza = t - self.active_cabeza["t_inicio"]
-            else:
-                self.active_cabeza["duracion"] = self.active_cabeza["t_fin"] - self.active_cabeza["t_inicio"]
-                self.cabeza_segments.append(self.active_cabeza)
-                self.active_cabeza = {
-                    "valor": angulo_cabeza_int,
-                    "t_inicio": self.active_cabeza["t_fin"],
-                    "t_fin": t
-                }
-                self.tiempo_cabeza = t - self.active_cabeza["t_inicio"]
-
-        # 3. Actualizar Cuello
-        if self.active_cuello is None:
-            self.active_cuello = {
-                "valor": angulo_cuello_int,
-                "t_inicio": t,
-                "t_fin": t
-            }
-            self.tiempo_cuello = 0.0
-        else:
-            if self.active_cuello["valor"] == angulo_cuello_int:
-                self.active_cuello["t_fin"] = t
-                self.tiempo_cuello = t - self.active_cuello["t_inicio"]
-            else:
-                self.active_cuello["duracion"] = self.active_cuello["t_fin"] - self.active_cuello["t_inicio"]
-                self.cuello_segments.append(self.active_cuello)
-                self.active_cuello = {
-                    "valor": angulo_cuello_int,
-                    "t_inicio": self.active_cuello["t_fin"],
-                    "t_fin": t
-                }
-                self.tiempo_cuello = t - self.active_cuello["t_inicio"]
-
-        # 4. Actualizar Hombro
-        if self.active_hombro is None:
-            self.active_hombro = {
-                "valor": angulo_hombro_int,
-                "t_inicio": t,
-                "t_fin": t
-            }
-            self.tiempo_hombro = 0.0
-        else:
-            if self.active_hombro["valor"] == angulo_hombro_int:
-                self.active_hombro["t_fin"] = t
-                self.tiempo_hombro = t - self.active_hombro["t_inicio"]
-            else:
-                self.active_hombro["duracion"] = self.active_hombro["t_fin"] - self.active_hombro["t_inicio"]
-                self.hombro_segments.append(self.active_hombro)
-                self.active_hombro = {
-                    "valor": angulo_hombro_int,
-                    "t_inicio": self.active_hombro["t_fin"],
-                    "t_fin": t
-                }
-                self.tiempo_hombro = t - self.active_hombro["t_inicio"]
-
-    def update_no_pose(self, t):
-        """Actualiza los segmentos cuando no se detecta pose."""
-        self.active_lado = None
-        
-        # Tronco
-        if self.active_tronco is None:
-            self.active_tronco = {
-                "valor": None,
-                "t_inicio": t,
-                "t_fin": t
-            }
-            self.tiempo_tronco = 0.0
-        else:
-            if self.active_tronco["valor"] is None:
-                self.active_tronco["t_fin"] = t
-                self.tiempo_tronco = t - self.active_tronco["t_inicio"]
-            else:
-                self.active_tronco["duracion"] = self.active_tronco["t_fin"] - self.active_tronco["t_inicio"]
-                self.tronco_segments.append(self.active_tronco)
-                self.active_tronco = {
-                    "valor": None,
-                    "t_inicio": self.active_tronco["t_fin"],
-                    "t_fin": t
-                }
-                self.tiempo_tronco = t - self.active_tronco["t_inicio"]
-
-        # Cabeza
-        if self.active_cabeza is None:
-            self.active_cabeza = {
-                "valor": None,
-                "t_inicio": t,
-                "t_fin": t
-            }
-            self.tiempo_cabeza = 0.0
-        else:
-            if self.active_cabeza["valor"] is None:
-                self.active_cabeza["t_fin"] = t
-                self.tiempo_cabeza = t - self.active_cabeza["t_inicio"]
-            else:
-                self.active_cabeza["duracion"] = self.active_cabeza["t_fin"] - self.active_cabeza["t_inicio"]
-                self.cabeza_segments.append(self.active_cabeza)
-                self.active_cabeza = {
-                    "valor": None,
-                    "t_inicio": self.active_cabeza["t_fin"],
-                    "t_fin": t
-                }
-                self.tiempo_cabeza = t - self.active_cabeza["t_inicio"]
-
-        # Cuello
-        if self.active_cuello is None:
-            self.active_cuello = {
-                "valor": None,
-                "t_inicio": t,
-                "t_fin": t
-            }
-            self.tiempo_cuello = 0.0
-        else:
-            if self.active_cuello["valor"] is None:
-                self.active_cuello["t_fin"] = t
-                self.tiempo_cuello = t - self.active_cuello["t_inicio"]
-            else:
-                self.active_cuello["duracion"] = self.active_cuello["t_fin"] - self.active_cuello["t_inicio"]
-                self.cuello_segments.append(self.active_cuello)
-                self.active_cuello = {
-                    "valor": None,
-                    "t_inicio": self.active_cuello["t_fin"],
-                    "t_fin": t
-                }
-                self.tiempo_cuello = t - self.active_cuello["t_inicio"]
-
-        # Hombro
-        if self.active_hombro is None:
-            self.active_hombro = {
-                "valor": None,
-                "t_inicio": t,
-                "t_fin": t
-            }
-            self.tiempo_hombro = 0.0
-        else:
-            if self.active_hombro["valor"] is None:
-                self.active_hombro["t_fin"] = t
-                self.tiempo_hombro = t - self.active_hombro["t_inicio"]
-            else:
-                self.active_hombro["duracion"] = self.active_hombro["t_fin"] - self.active_hombro["t_inicio"]
-                self.hombro_segments.append(self.active_hombro)
-                self.active_hombro = {
-                    "valor": None,
-                    "t_inicio": self.active_hombro["t_fin"],
-                    "t_fin": t
-                }
-                self.tiempo_hombro = t - self.active_hombro["t_inicio"]
-
-    def get_all_segments(self):
-        """Retorna todos los segmentos registrados en un diccionario por cada ángulo."""
-        tronco_all = list(self.tronco_segments)
-        if self.active_tronco is not None:
-            seg_activo_copia = dict(self.active_tronco)
-            seg_activo_copia["duracion"] = seg_activo_copia["t_fin"] - seg_activo_copia["t_inicio"]
-            tronco_all.append(seg_activo_copia)
-
-        cabeza_all = list(self.cabeza_segments)
-        if self.active_cabeza is not None:
-            seg_activo_copia = dict(self.active_cabeza)
-            seg_activo_copia["duracion"] = seg_activo_copia["t_fin"] - seg_activo_copia["t_inicio"]
-            cabeza_all.append(seg_activo_copia)
-
-        cuello_all = list(self.cuello_segments)
-        if self.active_cuello is not None:
-            seg_activo_copia = dict(self.active_cuello)
-            seg_activo_copia["duracion"] = seg_activo_copia["t_fin"] - seg_activo_copia["t_inicio"]
-            cuello_all.append(seg_activo_copia)
-
-        hombro_all = list(self.hombro_segments)
-        if self.active_hombro is not None:
-            seg_activo_copia = dict(self.active_hombro)
-            seg_activo_copia["duracion"] = seg_activo_copia["t_fin"] - seg_activo_copia["t_inicio"]
-            hombro_all.append(seg_activo_copia)
-
-        return {
-            "tronco": tronco_all,
-            "cabeza": cabeza_all,
-            "cuello": cuello_all,
-            "hombro": hombro_all,
-            "lado": self.active_lado
-        }
+        self.frames_data.append({
+            "frame_idx": frame_idx,
+            "angulo_tronco": None,
+            "angulo_cabeza": None,
+            "angulo_cuello": None,
+            "angulo_hombro": None,
+            "lado_usado": "--",
+            "tiempo_postura": 0.0,
+            "frames_acumulados": 0
+        })
+        return 0.0
 
     def clear_history_after_save(self):
-        """Limpia el historial de segmentos guardados y reinicia el inicio de los segmentos activos al tiempo de guardado."""
-        self.tronco_segments = []
-        self.cabeza_segments = []
-        self.cuello_segments = []
-        self.hombro_segments = []
-        
-        if self.active_tronco is not None:
-            self.active_tronco["t_inicio"] = self.active_tronco["t_fin"]
-        if self.active_cabeza is not None:
-            self.active_cabeza["t_inicio"] = self.active_cabeza["t_fin"]
-        if self.active_cuello is not None:
-            self.active_cuello["t_inicio"] = self.active_cuello["t_fin"]
-        if self.active_hombro is not None:
-            self.active_hombro["t_inicio"] = self.active_hombro["t_fin"]
+        """Limpia el historial después de haber sido guardado."""
+        self.frames_data = []

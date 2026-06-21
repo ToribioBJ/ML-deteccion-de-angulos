@@ -201,10 +201,12 @@ class AngleDetectorApp(ctk.CTk):
         color_nombre = self.sidebar.get_color_name()
         color_bgr = COLOR_PALETTE.get(color_nombre, ROSADO)
         
-        # Calcular tiempo de video/reproducción
+        # Calcular tiempo de video/reproducción y FPS
         if self.file_type == "video" and frame_idx is not None and self.video_thread is not None:
-            t = frame_idx / self.video_thread.fps
+            fps = self.video_thread.fps
+            t = frame_idx / fps
         else:
+            fps = 30.0
             t = 0.0
 
         if self.current_landmarks:
@@ -216,12 +218,9 @@ class AngleDetectorApp(ctk.CTk):
             
             # Lógica de segmentos de postura
             if self.file_type == "video" and frame_idx is not None:
-                self.tracker.update_pose(angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado_usado, t)
+                tiempo_postura = self.tracker.update_pose(frame_idx, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado_usado, fps)
             else:
-                self.tracker.tiempo_tronco = 0.0
-                self.tracker.tiempo_cabeza = 0.0
-                self.tracker.tiempo_cuello = 0.0
-                self.tracker.tiempo_hombro = 0.0
+                tiempo_postura = 0.0
 
             dibujo_config = {
                 "color_vertical": color_bgr,
@@ -256,23 +255,23 @@ class AngleDetectorApp(ctk.CTk):
             
             # Actualizar dashboard
             self.dashboard.actualizar_metricas(
-                angulo_tronco, 
-                angulo_cabeza,
-                angulo_cuello, 
-                angulo_hombro, 
-                lado_usado, 
-                self.tracker.tiempo_tronco,
-                self.tracker.tiempo_cabeza,
-                self.tracker.tiempo_cuello,
-                self.tracker.tiempo_hombro
+                angulo_tronco=angulo_tronco, 
+                angulo_cabeza=angulo_cabeza,
+                angulo_cuello=angulo_cuello, 
+                angulo_hombro=angulo_hombro, 
+                lado=lado_usado, 
+                tiempo_actual=tiempo_postura
             )
         else:
             self.current_processed_frame = frame_a_dibujar
-            self.dashboard.reset_valores()
             
             # Lógica de segmentos para frame sin pose
             if self.file_type == "video" and frame_idx is not None:
-                self.tracker.update_no_pose(t)
+                tiempo_postura = self.tracker.update_no_pose(frame_idx)
+            else:
+                tiempo_postura = 0.0
+                
+            self.dashboard.reset_valores(tiempo_actual=tiempo_postura)
             
         # Pasar el frame procesado al visualizador
         self.visualizer.mostrar_frame(self.current_processed_frame, self._get_window_scaling())
@@ -372,48 +371,57 @@ class AngleDetectorApp(ctk.CTk):
             messagebox.showwarning("Campo Vacío", "Por favor, ingrese el nombre de la persona para realizar el registro.", parent=self)
             return
 
-        if self.current_landmarks is None or self.raw_current_frame is None:
-            messagebox.showwarning("Sin Detección", "No hay datos de pose detectados para registrar. Asegúrese de cargar un archivo con una persona visible.", parent=self)
+        if self.raw_current_frame is None:
+            messagebox.showwarning("Sin Archivo", "No hay ningún archivo cargado para registrar.", parent=self)
             return
 
         es_video = (self.file_type == "video")
         
-        # Para videos, verificar que tengamos segmentos procesados para guardar
-        todos_segmentos = self.tracker.get_all_segments()
-        if es_video and not (todos_segmentos.get("tronco") or todos_segmentos.get("cabeza") or todos_segmentos.get("cuello") or todos_segmentos.get("hombro")):
+        # Para videos, verificar que tengamos frames procesados para guardar
+        if es_video and not self.tracker.frames_data:
             messagebox.showwarning("Sin Datos de Video", "No hay datos de video acumulados. Inicie la reproducción del video para analizar y medir los ángulos antes de registrar.", parent=self)
             return
 
-        # Calcular los valores de la postura actual en pantalla (para estático)
-        h, w, _ = self.raw_current_frame.shape
-        lado_config = self.sidebar.get_lado()
-        p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
-        angulo_tronco = calcular_flexion_tronco(p_hombro, p_cadera)
-        angulo_cabeza = calcular_angulo_cabeza(p_oreja, p_ojo)
-        angulo_cuello = angulo_cabeza - angulo_tronco
-        angulo_hombro = calcular_flexion_hombro(p_cadera, p_hombro, p_codo)
-
         archivo_origen = os.path.basename(self.current_filepath) if self.current_filepath else "Previsualización / Imagen"
         excel_path = "registro_posturas.xlsx"
+
+        # Construir la lista de datos a registrar
+        if es_video:
+            frames_data = self.tracker.frames_data
+        else:
+            if self.current_landmarks is None:
+                messagebox.showwarning("Sin Detección", "No hay datos de pose detectados para registrar. Asegúrese de que una persona sea visible en la imagen.", parent=self)
+                return
+            h, w, _ = self.raw_current_frame.shape
+            lado_config = self.sidebar.get_lado()
+            p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
+            angulo_tronco = calcular_flexion_tronco(p_hombro, p_cadera)
+            angulo_cabeza = calcular_angulo_cabeza(p_oreja, p_ojo)
+            angulo_cuello = angulo_cabeza - angulo_tronco
+            angulo_hombro = calcular_flexion_hombro(p_cadera, p_hombro, p_codo)
+            
+            frames_data = [{
+                "angulo_tronco": int(round(angulo_tronco)),
+                "angulo_cabeza": int(round(angulo_cabeza)),
+                "angulo_cuello": int(round(angulo_cuello)),
+                "angulo_hombro": int(round(angulo_hombro)),
+                "lado_usado": lado_usado,
+                "tiempo_postura": 0.0,
+                "frames_acumulados": 1
+            }]
 
         try:
             num_regs = registrar_posturas_excel(
                 excel_path=excel_path,
                 nombre=nombre,
                 archivo_origen=archivo_origen,
-                es_video=es_video,
-                segmentos=todos_segmentos,
-                angulo_tronco=angulo_tronco,
-                angulo_cabeza=angulo_cabeza,
-                angulo_cuello=angulo_cuello,
-                angulo_hombro=angulo_hombro,
-                lado_usado=lado_usado
+                frames_data=frames_data
             )
             
             # Limpiar historial tras guardar con éxito
             if es_video:
                 self.tracker.clear_history_after_save()
-                mensaje_exito = f"Se registraron exitosamente {num_regs} segmentos de postura del paciente '{nombre}' en:\n{os.path.abspath(excel_path)}"
+                mensaje_exito = f"Se registraron exitosamente {num_regs} frames de postura del paciente '{nombre}' en:\n{os.path.abspath(excel_path)}"
             else:
                 mensaje_exito = f"Datos del paciente '{nombre}' registrados correctamente en:\n{os.path.abspath(excel_path)}"
 

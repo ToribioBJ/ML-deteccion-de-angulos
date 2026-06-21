@@ -298,8 +298,9 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_t
     cv2.ellipse(imagen, (xh, yh), (cfg["radio_arco_hombro"], cfg["radio_arco_hombro"]), 0, inicio_h, fin_h, col_arco_borde, cfg["grosor_borde_arco"])
 
     # --- 4. DIBUJAR PUNTOS CLAVE ---
+    col_pts = cfg.get("color_puntos", ROSADO)
     def dibujar_punto_estetico(img, centro):
-        cv2.circle(img, centro, 6, (255, 100, 0), -1, cv2.LINE_AA)
+        cv2.circle(img, centro, 6, col_pts, -1, cv2.LINE_AA)
         cv2.circle(img, centro, 8, (255, 255, 255), 1, cv2.LINE_AA)
 
     def dibujar_circulo_grande(img, centro, color_borde):
