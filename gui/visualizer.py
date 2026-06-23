@@ -42,7 +42,7 @@ class VisualizerFrame(ctk.CTkFrame):
                 pass
             self._resize_after_id = None
 
-    def mostrar_frame(self, frame, scaling):
+    def mostrar_frame(self, frame, scaling, is_reference=False, alfa=None, beta=None):
         """Adapta la imagen OpenCV BGR para mostrarla centrada en el visor."""
         if frame is None:
             return
@@ -50,6 +50,56 @@ class VisualizerFrame(ctk.CTkFrame):
         # Convertir BGR a RGB
         rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(rgb_image)
+        
+        if is_reference and alfa is not None and beta is not None:
+            from PIL import ImageDraw, ImageFont
+            img_w, img_h = pil_image.size
+            
+            # Calcular factor de escala basado en el ancho de la imagen para que sea responsivo
+            base_scale = max(0.6, min(img_w / 800.0, 4.0))
+            
+            w_box = int(round(280 * base_scale))
+            h_box = int(round(130 * base_scale))
+            
+            if img_w > w_box + 20 and img_h > h_box + 20:
+                overlay = Image.new('RGBA', pil_image.size, (0, 0, 0, 0))
+                draw_overlay = ImageDraw.Draw(overlay)
+                
+                pad = int(round(20 * base_scale))
+                # Rectángulo con fondo oscuro de alta densidad y contorno morado neón grueso (4px)
+                draw_overlay.rectangle(
+                    [pad, pad, pad + w_box, pad + h_box], 
+                    fill=(15, 12, 25, 225), 
+                    outline=(168, 85, 247), 
+                    width=max(2, int(round(4 * base_scale)))
+                )
+                
+                pil_image = Image.alpha_composite(pil_image.convert('RGBA'), overlay).convert('RGB')
+                draw = ImageDraw.Draw(pil_image)
+                
+                try:
+                    font_title = ImageFont.truetype("arial.ttf", int(round(15 * base_scale)))
+                    font_text = ImageFont.truetype("arial.ttf", int(round(20 * base_scale)))
+                except IOError:
+                    font_title = ImageFont.load_default()
+                    font_text = ImageFont.load_default()
+                
+                title_y = pad + int(round(15 * base_scale))
+                alfa_y = pad + int(round(48 * base_scale))
+                beta_y = pad + int(round(82 * base_scale))
+                
+                # Título en tono lavanda brillante
+                draw.text((pad + int(round(20 * base_scale)), title_y), "ÁNGULOS DE REFERENCIA", fill=(192, 132, 252), font=font_title)
+                
+                # Círculos (viñetas) decorativos morados para cada ángulo
+                bullet_r = int(round(4 * base_scale))
+                draw.ellipse([pad + int(round(20 * base_scale)), alfa_y + int(round(6 * base_scale)), pad + int(round(20 * base_scale)) + bullet_r * 2, alfa_y + int(round(6 * base_scale)) + bullet_r * 2], fill=(168, 85, 247))
+                draw.ellipse([pad + int(round(20 * base_scale)), beta_y + int(round(6 * base_scale)), pad + int(round(20 * base_scale)) + bullet_r * 2, beta_y + int(round(6 * base_scale)) + bullet_r * 2], fill=(168, 85, 247))
+                
+                # Textos de los ángulos
+                draw.text((pad + int(round(35 * base_scale)), alfa_y), f"Tronco (α) = {int(round(alfa))}°", fill=(255, 255, 255), font=font_text)
+                draw.text((pad + int(round(35 * base_scale)), beta_y), f"Cabeza (β) = {int(round(beta))}°", fill=(255, 255, 255), font=font_text)
+
         
         # Obtener dimensiones reales del contenedor
         container_w = self.winfo_width()

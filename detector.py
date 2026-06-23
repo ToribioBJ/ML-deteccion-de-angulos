@@ -273,21 +273,22 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_t
     cv2.ellipse(overlay, (xo, yo), (cfg["radio_arco_cabeza"], cfg["radio_arco_cabeza"]), 0, inicio_c, fin_c, col_arco, -1)
 
     # --- 3. DIBUJAR BRAZO Y ÁNGULO DEL HOMBRO ---
-    cv2.line(imagen, (xh, yh), (xe, ye), col_h, cfg["grosor_brazo"])
+    if cfg.get("dibujar_brazo", True):
+        cv2.line(imagen, (xh, yh), (xe, ye), col_h, cfg["grosor_brazo"])
 
-    ang_cadera = math.degrees(math.atan2(yc - yh, xc - xh))
-    ang_codo = math.degrees(math.atan2(ye - yh, xe - xh))
-    
-    inicio_h = ang_cadera
-    fin_h = ang_codo
-    if fin_h < inicio_h:
-        inicio_h, fin_h = fin_h, inicio_h
+        ang_cadera = math.degrees(math.atan2(yc - yh, xc - xh))
+        ang_codo = math.degrees(math.atan2(ye - yh, xe - xh))
         
-    diff_h = fin_h - inicio_h
-    if diff_h > 180:
-        inicio_h, fin_h = fin_h, inicio_h + 360
-        
-    cv2.ellipse(overlay, (xh, yh), (cfg["radio_arco_hombro"], cfg["radio_arco_hombro"]), 0, inicio_h, fin_h, col_arco, -1)
+        inicio_h = ang_cadera
+        fin_h = ang_codo
+        if fin_h < inicio_h:
+            inicio_h, fin_h = fin_h, inicio_h
+            
+        diff_h = fin_h - inicio_h
+        if diff_h > 180:
+            inicio_h, fin_h = fin_h, inicio_h + 360
+            
+        cv2.ellipse(overlay, (xh, yh), (cfg["radio_arco_hombro"], cfg["radio_arco_hombro"]), 0, inicio_h, fin_h, col_arco, -1)
 
     # Mezclar transparencia
     cv2.addWeighted(overlay, cfg["transparencia_arco"], imagen, 1 - cfg["transparencia_arco"], 0, imagen)
@@ -295,7 +296,8 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_t
     # Bordes de arcos
     cv2.ellipse(imagen, (xc, yc), (cfg["radio_arco"], cfg["radio_arco"]), 0, inicio_t, fin_t, col_arco_borde, cfg["grosor_borde_arco"])
     cv2.ellipse(imagen, (xo, yo), (cfg["radio_arco_cabeza"], cfg["radio_arco_cabeza"]), 0, inicio_c, fin_c, col_arco_borde, cfg["grosor_borde_arco"])
-    cv2.ellipse(imagen, (xh, yh), (cfg["radio_arco_hombro"], cfg["radio_arco_hombro"]), 0, inicio_h, fin_h, col_arco_borde, cfg["grosor_borde_arco"])
+    if cfg.get("dibujar_brazo", True):
+        cv2.ellipse(imagen, (xh, yh), (cfg["radio_arco_hombro"], cfg["radio_arco_hombro"]), 0, inicio_h, fin_h, col_arco_borde, cfg["grosor_borde_arco"])
 
     # --- 4. DIBUJAR PUNTOS CLAVE ---
     col_pts = cfg.get("color_puntos", ROSADO)
@@ -310,9 +312,12 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_t
 
     dibujar_punto_estetico(imagen, (xojo, yojo))
     dibujar_punto_estetico(imagen, (xo, yo))
-    dibujar_circulo_grande(imagen, (xh, yh), col_h)
+    if cfg.get("dibujar_brazo", True):
+        dibujar_circulo_grande(imagen, (xh, yh), col_h)
+        dibujar_punto_estetico(imagen, (xe, ye))
+    else:
+        dibujar_punto_estetico(imagen, (xh, yh))
     dibujar_circulo_grande(imagen, (xc, yc), col_t)
-    dibujar_punto_estetico(imagen, (xe, ye))
 
     # --- 5. TEXTOS DE ÁNGULOS (Paleta seleccionada, enteros sin grado para evitar fallas) ---
     if cfg.get("dibujar_texto", False):
@@ -334,7 +339,9 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_t
         cv2.putText(imagen, texto_cabeza, org_c, cv2.FONT_HERSHEY_SIMPLEX, 0.70, col_c, 2, cv2.LINE_AA)
 
         # 3. Texto Brazo (dentro del círculo en el hombro, tamaño aumentado para ser visible)
-        texto_hombro = f"{int(round(angulo_hombro))}"
-        (tw_h, th_h), _ = cv2.getTextSize(texto_hombro, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)
-        cv2.putText(imagen, texto_hombro, (int(xh - tw_h / 2), int(yh + th_h / 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.58, col_h, 2, cv2.LINE_AA)
+        if cfg.get("dibujar_brazo", True):
+            texto_hombro = f"{int(round(angulo_hombro))}"
+            (tw_h, th_h), _ = cv2.getTextSize(texto_hombro, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)
+            cv2.putText(imagen, texto_hombro, (int(xh - tw_h / 2), int(yh + th_h / 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.58, col_h, 2, cv2.LINE_AA)
+
 

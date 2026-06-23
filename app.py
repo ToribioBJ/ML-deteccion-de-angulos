@@ -70,6 +70,13 @@ class AngleDetectorApp(ctk.CTk):
         self.current_landmarks = None
         self.current_processed_frame = None
         
+        # Variables para imagen de referencia
+        self.referencia_filepath = None
+        self.referencia_raw_frame = None
+        self.referencia_landmarks = None
+        self.alfa = None
+        self.beta = None
+        
         # Inicializar trackers de sesión
         self.tracker = PostureTracker()
 
@@ -88,7 +95,8 @@ class AngleDetectorApp(ctk.CTk):
         self.sidebar = SidebarFrame(
             self,
             on_seleccionar=self.seleccionar_archivo,
-            on_lado_cambiado=self.actualizar_analisis_imagen,
+            on_seleccionar_referencia=self.seleccionar_referencia,
+            on_lado_cambiado=self.on_lado_cambiado,
             on_color_cambiado=self.on_color_change,
             on_confianza_cambiada=self.on_confianza_change,
             on_registrar_excel=self.registrar_en_excel,
@@ -104,21 +112,44 @@ class AngleDetectorApp(ctk.CTk):
         self.main_container.grid_rowconfigure(0, weight=1)
         self.main_container.grid_columnconfigure(0, weight=1)
 
+        # Sub-contenedor para los dos visores (principal y referencia)
+        self.vis_container = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.vis_container.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        self.vis_container.grid_rowconfigure(0, weight=1)
+        self.vis_container.grid_columnconfigure((0, 1), weight=1)
+
         # Dashboard inferior
         self.dashboard = DashboardFrame(self.main_container)
         self.dashboard.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 20))
 
-        # Visor de fotogramas (responsivo)
+        # Visor de la imagen de referencia (página izquierda)
+        self.visualizer_ref = VisualizerFrame(
+            self.vis_container,
+            dashboard_frame=self.dashboard,
+            on_resize_callback=self.actualizar_analisis_imagen_ref
+        )
+        self.visualizer_ref.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.visualizer_ref.lbl_viewer.configure(
+            text="Imagen de Referencia\n\nPresione 'Agregar Imagen de Referencia'\npara calcular alfa (α) y beta (β)",
+            text_color="gray"
+        )
+
+        # Visor principal (Video/Imagen, página derecha)
         self.visualizer = VisualizerFrame(
-            self.main_container,
+            self.vis_container,
             dashboard_frame=self.dashboard,
             on_resize_callback=self.actualizar_analisis_imagen
         )
-        self.visualizer.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        self.visualizer.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
 
     # --- MANEJADORES DE EVENTOS DE CONFIGURACIÓN ---
     def on_color_change(self, val):
         self.actualizar_analisis_imagen()
+        self.actualizar_analisis_imagen_ref()
+
+    def on_lado_cambiado(self, val):
+        self.actualizar_analisis_imagen()
+        self.actualizar_analisis_imagen_ref()
 
     def on_confianza_change(self, val):
         try:
@@ -130,8 +161,112 @@ class AngleDetectorApp(ctk.CTk):
             if self.raw_current_frame is not None and not is_playing:
                 self.current_landmarks = self.detector.procesar_frame(self.raw_current_frame)
             self.actualizar_analisis_imagen()
+
+            # Re-detectar pose en la imagen de referencia
+            if self.referencia_raw_frame is not None:
+                self.referencia_landmarks = self.detector.procesar_frame(self.referencia_raw_frame)
+                self.actualizar_analisis_imagen_ref()
         except Exception as e:
             print(f"Error al cambiar confianza: {e}")
+
+    # --- MANEJADORES DE IMAGEN DE REFERENCIA ---
+    def seleccionar_referencia(self):
+        file_path = filedialog.askopenfilename(
+            parent=self,
+            title="Seleccionar Imagen de Referencia",
+            filetypes=[
+                ("Imágenes", "*.jpg *.png *.jpeg")
+            ]
+        )
+        if not file_path:
+            return
+            
+        frame = cv2.imread(file_path)
+        if frame is not None:
+            self.referencia_filepath = file_path
+            self.referencia_raw_frame = frame
+            self.visualizer_ref.raw_current_frame = frame
+            
+            # Procesar landmarks de pose para la imagen de referencia
+            self.referencia_landmarks = self.detector.procesar_frame(frame)
+            if self.referencia_landmarks is None:
+                messagebox.showwarning(
+                    "Sin silueta detectada",
+                    "No se detectó ninguna pose o silueta en la imagen de referencia.\n"
+                    "Asegúrese de que el cuerpo entero o los puntos clave (cadera, hombro, oreja, ojo) sean visibles.",
+                    parent=self
+                )
+                self.referencia_raw_frame = None
+                self.visualizer_ref.raw_current_frame = None
+                self.alfa = None
+                self.beta = None
+                self.visualizer_ref.reset_visor()
+                return
+                
+            self.actualizar_analisis_imagen_ref()
+        else:
+            messagebox.showerror("Error", "No se pudo leer la imagen de referencia seleccionada.", parent=self)
+
+    def actualizar_analisis_imagen_ref(self, *args):
+        if self.referencia_raw_frame is None:
+            return
+            
+        frame_a_dibujar = self.referencia_raw_frame.copy()
+        h, w, _ = frame_a_dibujar.shape
+        lado_config = self.sidebar.get_lado()
+        color_nombre = self.sidebar.get_color_name()
+        color_bgr = COLOR_PALETTE.get(color_nombre, ROSADO)
+        
+        if self.referencia_landmarks:
+            p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_usado = obtener_landmarks_analisis(
+                self.referencia_landmarks, lado_config, w, h
+            )
+            # Calcular ángulos base de referencia
+            self.alfa = calcular_flexion_tronco(p_hombro, p_cadera)
+            self.beta = calcular_angulo_cabeza(p_oreja, p_ojo)
+            
+            # Configuración de dibujo estético para la referencia
+            dibujo_config = {
+                "color_vertical": color_bgr,
+                "color_tronco": color_bgr,
+                "color_cabeza": color_bgr,
+                "color_brazo": color_bgr,
+                "color_arco_borde": color_bgr,
+                "color_arco": color_bgr,
+                "color_puntos": color_bgr,
+                "color_texto": BLANCO,
+                "grosor_lineas": 3,
+                "grosor_tronco": 5,
+                "grosor_cabeza": 4,
+                "grosor_brazo": 4,
+                "grosor_borde_arco": 2,
+                "radio_arco": 80,
+                "radio_arco_cabeza": 65,
+                "radio_arco_hombro": 70,
+                "radio_ear": 6,
+                "radio_hombro": 22,
+                "radio_cadera": 22,
+                "radio_codo": 22,
+                "transparencia_arco": 0.28,
+                "dibujar_texto": True,
+                "dibujar_brazo": False
+            }
+            
+            dibujar_analisis_completo(
+                frame_a_dibujar, p_cadera, p_hombro, p_oreja, p_codo, p_ojo,
+                self.alfa, self.beta, self.beta - self.alfa, 0.0, config=dibujo_config
+            )
+            
+            # Mostrar la imagen con el overlay especial
+            self.visualizer_ref.mostrar_frame(
+                frame_a_dibujar, 
+                self._get_window_scaling(), 
+                is_reference=True, 
+                alfa=self.alfa, 
+                beta=self.beta
+            )
+        else:
+            self.visualizer_ref.mostrar_frame(frame_a_dibujar, self._get_window_scaling())
 
     # --- MANEJADORES DE ARCHIVOS ---
     def seleccionar_archivo(self):
@@ -375,6 +510,11 @@ class AngleDetectorApp(ctk.CTk):
             messagebox.showwarning("Sin Archivo", "No hay ningún archivo cargado para registrar.", parent=self)
             return
 
+        # Validar que se haya cargado una imagen de referencia antes de exportar
+        if self.alfa is None or self.beta is None:
+            messagebox.showwarning("Imagen de Referencia Requerida", "Por favor, agregue una imagen de referencia con postura detectada antes de registrar los datos en Excel.", parent=self)
+            return
+
         es_video = (self.file_type == "video")
         
         # Para videos, verificar que tengamos frames procesados para guardar
@@ -415,7 +555,9 @@ class AngleDetectorApp(ctk.CTk):
                 excel_path=excel_path,
                 nombre=nombre,
                 archivo_origen=archivo_origen,
-                frames_data=frames_data
+                frames_data=frames_data,
+                alfa=self.alfa,
+                beta=self.beta
             )
             
             # Limpiar historial tras guardar con éxito
@@ -433,6 +575,8 @@ class AngleDetectorApp(ctk.CTk):
     def on_closing(self):
         self.stop_video_thread()
         self.visualizer.cancel_pending_resizes()
+        if hasattr(self, 'visualizer_ref'):
+            self.visualizer_ref.cancel_pending_resizes()
         try:
             self.detector.close()
         except:

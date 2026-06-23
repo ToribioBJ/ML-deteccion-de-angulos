@@ -6,7 +6,9 @@ def registrar_posturas_excel(
     excel_path, 
     nombre, 
     archivo_origen, 
-    frames_data
+    frames_data,
+    alfa,
+    beta
 ):
     """
     Registra datos de postura por frame en un archivo Excel.
@@ -20,6 +22,8 @@ def registrar_posturas_excel(
                      [{"frame_idx": int/str, "angulo_tronco": int, "angulo_cabeza": int, 
                        "angulo_cuello": int, "angulo_hombro": int, "lado_usado": str,
                        "tiempo_postura": float, "frames_acumulados": int}]
+        alfa: Ángulo de tronco de referencia (imagen de referencia).
+        beta: Ángulo de cabeza de referencia (imagen de referencia).
     """
     # Cargar o crear libro de trabajo
     if os.path.exists(excel_path):
@@ -52,9 +56,13 @@ def registrar_posturas_excel(
     headers = [
         "Nombre de la persona",
         "Nombre del video",
-        "Ángulo de tronco",
-        "Ángulo de cabeza",
-        "Ángulo de cuello",
+        "Ángulo de referencia del tronco (α)",
+        "Ángulo del tronco del video",
+        "Ángulo del tronco ajustado",
+        "Ángulo de referencia de la cabeza (β)",
+        "Ángulo de la cabeza del video",
+        "Ángulo de la cabeza ajustado",
+        "Ángulo del cuello ajustado",
         "Ángulo de brazo",
         "Lado leído",
         "Tiempo de postura",
@@ -74,14 +82,40 @@ def registrar_posturas_excel(
     # Fecha y hora del análisis para este lote de registros
     fecha_hora_analisis = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    alfa_val = int(round(alfa)) if alfa is not None else None
+    beta_val = int(round(beta)) if beta is not None else None
+
     # Escribir cada frame
     for f_data in frames_data:
+        t_vid = f_data.get("angulo_tronco")
+        c_vid = f_data.get("angulo_cabeza")
+        
+        if t_vid is not None and t_vid != "--" and c_vid is not None and c_vid != "--" and alfa_val is not None and beta_val is not None:
+            try:
+                t_vid_int = int(round(float(t_vid)))
+                c_vid_int = int(round(float(c_vid)))
+                tronco_ajustado = t_vid_int - alfa_val
+                cabeza_ajustada = c_vid_int - beta_val
+                cuello_ajustado = cabeza_ajustada - tronco_ajustado
+            except ValueError:
+                tronco_ajustado = "--"
+                cabeza_ajustada = "--"
+                cuello_ajustado = "--"
+        else:
+            tronco_ajustado = "--"
+            cabeza_ajustada = "--"
+            cuello_ajustado = "--"
+
         sheet.append([
             nombre,
             archivo_origen,
-            f_data.get("angulo_tronco") if f_data.get("angulo_tronco") is not None else "--",
-            f_data.get("angulo_cabeza") if f_data.get("angulo_cabeza") is not None else "--",
-            f_data.get("angulo_cuello") if f_data.get("angulo_cuello") is not None else "--",
+            alfa_val if alfa_val is not None else "--",
+            t_vid if t_vid is not None else "--",
+            tronco_ajustado,
+            beta_val if beta_val is not None else "--",
+            c_vid if c_vid is not None else "--",
+            cabeza_ajustada,
+            cuello_ajustado,
             f_data.get("angulo_hombro") if f_data.get("angulo_hombro") is not None else "--",
             f_data.get("lado_usado") if f_data.get("lado_usado") is not None else "--",
             f_data.get("tiempo_postura") if f_data.get("tiempo_postura") is not None else 0.0,
@@ -92,3 +126,4 @@ def registrar_posturas_excel(
     workbook.save(excel_path)
     workbook.close()
     return len(frames_data)
+

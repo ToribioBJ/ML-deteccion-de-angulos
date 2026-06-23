@@ -1,0 +1,93 @@
+import unittest
+import os
+import openpyxl
+from excel_exporter import registrar_posturas_excel
+
+class TestExcelExporter(unittest.TestCase):
+    def setUp(self):
+        self.excel_path = "test_registro_posturas.xlsx"
+        if os.path.exists(self.excel_path):
+            os.remove(self.excel_path)
+
+    def tearDown(self):
+        if os.path.exists(self.excel_path):
+            try:
+                os.remove(self.excel_path)
+            except:
+                pass
+
+    def test_exporter_headers_and_calculations(self):
+        frames_data = [
+            {
+                "frame_idx": 0,
+                "angulo_tronco": 20,
+                "angulo_cabeza": 45,
+                "angulo_cuello": 25,
+                "angulo_hombro": 15,
+                "lado_usado": "Derecho",
+                "tiempo_postura": 0.033,
+                "frames_acumulados": 1
+            }
+        ]
+        
+        # alfa = 15, beta = 10
+        # tronco_ajustado = 20 - 15 = 5
+        # cabeza_ajustada = 45 - 10 = 35
+        # cuello_ajustado = 35 - 5 = 30
+        
+        num_regs = registrar_posturas_excel(
+            excel_path=self.excel_path,
+            nombre="Juan Pérez",
+            archivo_origen="test_video.mp4",
+            frames_data=frames_data,
+            alfa=15.0,
+            beta=10.0
+        )
+        
+        self.assertEqual(num_regs, 1)
+        self.assertTrue(os.path.exists(self.excel_path))
+        
+        # Leer el archivo Excel generado
+        wb = openpyxl.load_workbook(self.excel_path)
+        sheet = wb["Registro Posturas"]
+        
+        # Verificar cabeceras
+        headers = [cell.value for cell in sheet[1]]
+        expected_headers = [
+            "Nombre de la persona",
+            "Nombre del video",
+            "Ángulo de referencia del tronco (α)",
+            "Ángulo del tronco del video",
+            "Ángulo del tronco ajustado",
+            "Ángulo de referencia de la cabeza (β)",
+            "Ángulo de la cabeza del video",
+            "Ángulo de la cabeza ajustado",
+            "Ángulo del cuello ajustado",
+            "Ángulo de brazo",
+            "Lado leído",
+            "Tiempo de postura",
+            "Frames acumulados",
+            "Fecha y hora del análisis"
+        ]
+        self.assertEqual(headers, expected_headers)
+        
+        # Verificar datos escritos en la fila 2
+        row_data = [cell.value for cell in sheet[2]]
+        self.assertEqual(row_data[0], "Juan Pérez")
+        self.assertEqual(row_data[1], "test_video.mp4")
+        self.assertEqual(row_data[2], 15)  # alfa
+        self.assertEqual(row_data[3], 20)  # angulo_tronco_video
+        self.assertEqual(row_data[4], 5)   # tronco_ajustado (20 - 15)
+        self.assertEqual(row_data[5], 10)  # beta
+        self.assertEqual(row_data[6], 45)  # angulo_cabeza_video
+        self.assertEqual(row_data[7], 35)  # cabeza_ajustada (45 - 10)
+        self.assertEqual(row_data[8], 30)  # cuello_ajustado (35 - 5)
+        self.assertEqual(row_data[9], 15)  # angulo_hombro
+        self.assertEqual(row_data[10], "Derecho")
+        self.assertAlmostEqual(row_data[11], 0.033, places=3)
+        self.assertEqual(row_data[12], 1)
+        
+        wb.close()
+
+if __name__ == "__main__":
+    unittest.main()

@@ -6,6 +6,7 @@ class SidebarFrame(ctk.CTkFrame):
         self, 
         parent, 
         on_seleccionar, 
+        on_seleccionar_referencia,
         on_lado_cambiado, 
         on_color_cambiado,
         on_confianza_cambiada, 
@@ -27,17 +28,21 @@ class SidebarFrame(ctk.CTkFrame):
         )
         self.lbl_titulo.grid(row=0, column=0, padx=20, pady=(25, 5), sticky="w")
         
-        self.lbl_subtitulo = ctk.CTkLabel(
-            self, 
-            text="Flexión de Tronco en Posturas", 
-            font=ctk.CTkFont(family="Helvetica", size=12, slant="italic"),
-            text_color="gray"
-        )
-        self.lbl_subtitulo.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="w")
 
         # --- SECCIÓN: CARGA DE ARCHIVO ---
         self.frm_archivo = ctk.CTkFrame(self, fg_color="transparent")
         self.frm_archivo.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+        
+        self.btn_referencia = ctk.CTkButton(
+            self.frm_archivo,
+            text="Agregar Imagen de Referencia",
+            command=on_seleccionar_referencia,
+            fg_color="#a855f7",
+            hover_color="#9333ea",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=38
+        )
+        self.btn_referencia.pack(fill="x", pady=(0, 5))
         
         self.btn_seleccionar = ctk.CTkButton(
             self.frm_archivo, 
@@ -47,6 +52,7 @@ class SidebarFrame(ctk.CTkFrame):
             height=38
         )
         self.btn_seleccionar.pack(fill="x", pady=(0, 5))
+
         
         self.lbl_archivo = ctk.CTkLabel(
             self.frm_archivo, 
