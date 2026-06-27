@@ -11,10 +11,10 @@ class PostureTracker:
 
     def update_pose(self, frame_idx, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado_usado, fps=30.0):
         """Registra la postura medida en un frame del video y calcula la duración de la postura activa."""
-        t_int = int(round(angulo_tronco))
-        c_int = int(round(angulo_cabeza))
-        cu_int = int(round(angulo_cuello))
-        h_int = int(round(angulo_hombro))
+        t_int = int(round(angulo_tronco)) if angulo_tronco is not None else None
+        c_int = int(round(angulo_cabeza)) if angulo_cabeza is not None else None
+        cu_int = int(round(angulo_cuello)) if angulo_cuello is not None else None
+        h_int = int(round(angulo_hombro)) if angulo_hombro is not None else None
         
         current_angles = (t_int, c_int, cu_int, h_int, lado_usado)
         

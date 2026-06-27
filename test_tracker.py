@@ -56,6 +56,15 @@ class TestPostureTracker(unittest.TestCase):
         self.assertAlmostEqual(tracker.frames_data[3]["tiempo_postura"], 1 / 30.0)
         self.assertEqual(tracker.frames_data[3]["frames_acumulados"], 1)
 
+    def test_update_pose_with_none_values(self):
+        tracker = PostureTracker()
+        fps = 30.0
+        dur = tracker.update_pose(0, None, 67.0, None, 48.0, "Derecho", fps)
+        self.assertAlmostEqual(dur, 1 / 30.0)
+        self.assertIsNone(tracker.frames_data[0]["angulo_tronco"])
+        self.assertIsNone(tracker.frames_data[0]["angulo_cuello"])
+        self.assertEqual(tracker.frames_data[0]["angulo_cabeza"], 67)
+
     def test_clear_history(self):
         tracker = PostureTracker()
         tracker.update_pose(0, 10.0, 15.0, 5.0, 30.0, "Izquierdo")

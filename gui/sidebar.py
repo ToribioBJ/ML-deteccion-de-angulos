@@ -13,7 +13,6 @@ class SidebarFrame(ctk.CTkFrame):
         on_registrar_excel, 
         on_play, 
         on_pause, 
-        on_guardar, 
         **kwargs
     ):
         super().__init__(parent, width=320, corner_radius=0, **kwargs)
@@ -90,16 +89,38 @@ class SidebarFrame(ctk.CTkFrame):
         self.opt_lado.pack(fill="x", padx=5, pady=(0, 15))
         self.opt_lado.set("Auto")
 
-        # Color de visualización
-        self.lbl_color = ctk.CTkLabel(self.frm_analisis, text="Color de líneas y arcos:")
-        self.lbl_color.pack(anchor="w", padx=5, pady=(0, 2))
-        self.opt_color = ctk.CTkOptionMenu(
+        # Color Tronco y Base Cuello
+        self.lbl_color_tronco = ctk.CTkLabel(self.frm_analisis, text="Color Angulo Del Tronco:")
+        self.lbl_color_tronco.pack(anchor="w", padx=5, pady=(0, 2))
+        self.opt_color_tronco = ctk.CTkOptionMenu(
             self.frm_analisis, 
             values=["Rosado", "Celeste", "Verde Neón", "Naranja", "Amarillo"],
             command=on_color_cambiado
         )
-        self.opt_color.pack(fill="x", padx=5, pady=(0, 15))
-        self.opt_color.set("Rosado")
+        self.opt_color_tronco.pack(fill="x", padx=5, pady=(0, 8))
+        self.opt_color_tronco.set("Rosado")
+
+        # Color Cabeza
+        self.lbl_color_cabeza = ctk.CTkLabel(self.frm_analisis, text="Color Angulo De La Cabeza:")
+        self.lbl_color_cabeza.pack(anchor="w", padx=5, pady=(0, 2))
+        self.opt_color_cabeza = ctk.CTkOptionMenu(
+            self.frm_analisis, 
+            values=["Rosado", "Celeste", "Verde Neón", "Naranja", "Amarillo"],
+            command=on_color_cambiado
+        )
+        self.opt_color_cabeza.pack(fill="x", padx=5, pady=(0, 8))
+        self.opt_color_cabeza.set("Rosado")
+
+        # Color Brazo
+        self.lbl_color_brazo = ctk.CTkLabel(self.frm_analisis, text="Color Angulo Del Brazo:")
+        self.lbl_color_brazo.pack(anchor="w", padx=5, pady=(0, 2))
+        self.opt_color_brazo = ctk.CTkOptionMenu(
+            self.frm_analisis, 
+            values=["Rosado", "Celeste", "Verde Neón", "Naranja", "Amarillo"],
+            command=on_color_cambiado
+        )
+        self.opt_color_brazo.pack(fill="x", padx=5, pady=(0, 8))
+        self.opt_color_brazo.set("Rosado")
 
         # Confianza del detector
         self.lbl_confianza = ctk.CTkLabel(self.frm_analisis, text="Confianza mínima: 0.50")
@@ -176,18 +197,8 @@ class SidebarFrame(ctk.CTkFrame):
         )
         self.btn_pause.pack(side="left", expand=True, padx=(5, 0), fill="x")
 
-        # Botón guardar captura
-        self.btn_guardar = ctk.CTkButton(
-            self, 
-            text="Guardar Captura de Imagen", 
-            fg_color="#4b5563",
-            hover_color="#374151",
-            command=on_guardar,
-            state="disabled",
-            font=ctk.CTkFont(weight="bold"),
-            height=35
-        )
-        self.btn_guardar.grid(row=10, column=0, padx=20, pady=(0, 20), sticky="ew")
+        # Botón guardar captura eliminado
+        pass
 
     def _on_slider_moved(self, value):
         """Maneja el movimiento local del slider para actualizar su etiqueta e invocar el callback."""
@@ -199,8 +210,14 @@ class SidebarFrame(ctk.CTkFrame):
     def get_lado(self):
         return self.opt_lado.get()
 
-    def get_color_name(self):
-        return self.opt_color.get()
+    def get_color_tronco_name(self):
+        return self.opt_color_tronco.get()
+
+    def get_color_cabeza_name(self):
+        return self.opt_color_cabeza.get()
+
+    def get_color_brazo_name(self):
+        return self.opt_color_brazo.get()
 
     def get_confianza(self):
         return self.sld_confianza.get()
@@ -222,17 +239,14 @@ class SidebarFrame(ctk.CTkFrame):
         if tipo_archivo == "image":
             self.btn_play.configure(state="disabled")
             self.btn_pause.configure(state="disabled")
-            self.btn_guardar.configure(state="normal")
             self.sld_confianza.configure(state="normal")
         elif tipo_archivo == "video":
             self.btn_play.configure(state="normal", text="Reproducir")
             self.btn_pause.configure(state="disabled")
-            self.btn_guardar.configure(state="disabled")
             self.sld_confianza.configure(state="normal")
         else: # Ninguno
             self.btn_play.configure(state="disabled")
             self.btn_pause.configure(state="disabled")
-            self.btn_guardar.configure(state="disabled")
             self.sld_confianza.configure(state="normal")
 
     def configurar_estados_reproduccion(self, is_playing):
@@ -240,17 +254,14 @@ class SidebarFrame(ctk.CTkFrame):
         if is_playing:
             self.btn_play.configure(state="disabled")
             self.btn_pause.configure(state="normal")
-            self.btn_guardar.configure(state="disabled")
             self.sld_confianza.configure(state="disabled")
         else: # Pausado
             self.btn_play.configure(state="normal", text="Reanudar")
             self.btn_pause.configure(state="disabled")
-            self.btn_guardar.configure(state="normal")
             self.sld_confianza.configure(state="normal")
 
     def configurar_estados_detenido(self):
         """Restablece los controles una vez finalizada la reproducción del video."""
         self.btn_play.configure(state="normal", text="Reproducir de nuevo")
         self.btn_pause.configure(state="disabled")
-        self.btn_guardar.configure(state="disabled")
         self.sld_confianza.configure(state="normal")

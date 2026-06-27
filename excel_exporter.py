@@ -1,6 +1,7 @@
 import os
 import openpyxl
 from datetime import datetime
+from openpyxl.styles import PatternFill, Font
 
 def registrar_posturas_excel(
     excel_path, 
@@ -70,6 +71,11 @@ def registrar_posturas_excel(
         "Fecha y hora del análisis"
     ]
 
+    # Estilos de formato: letra blanca, fondo color #215967
+    dark_blue_fill = PatternFill(start_color="215967", end_color="215967", fill_type="solid")
+    white_font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    white_font_data = Font(name="Calibri", size=11, color="FFFFFF")
+
     # Asegurar cabeceras en la hoja
     if sheet.max_row == 0 or (sheet.max_row == 1 and all(cell.value is None for cell in sheet[1])):
         sheet.delete_rows(1, sheet.max_row)
@@ -78,6 +84,12 @@ def registrar_posturas_excel(
         # Forzar cabeceras exactas en fila 1
         for col_idx, header in enumerate(headers, 1):
             sheet.cell(row=1, column=col_idx, value=header)
+
+    # Aplicar formato de cabecera a las columnas seleccionadas
+    for col_idx in [5, 8, 9, 10]:
+        cell = sheet.cell(row=1, column=col_idx)
+        cell.fill = dark_blue_fill
+        cell.font = white_font_header
 
     # Fecha y hora del análisis para este lote de registros
     fecha_hora_analisis = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -90,20 +102,30 @@ def registrar_posturas_excel(
         t_vid = f_data.get("angulo_tronco")
         c_vid = f_data.get("angulo_cabeza")
         
-        if t_vid is not None and t_vid != "--" and c_vid is not None and c_vid != "--" and alfa_val is not None and beta_val is not None:
+        # Calcular tronco ajustado (Ángulo del tronco del video - Alfa)
+        if t_vid is not None and t_vid != "--" and alfa_val is not None:
             try:
                 t_vid_int = int(round(float(t_vid)))
-                c_vid_int = int(round(float(c_vid)))
                 tronco_ajustado = t_vid_int - alfa_val
-                cabeza_ajustada = c_vid_int - beta_val
-                cuello_ajustado = cabeza_ajustada - tronco_ajustado
-            except ValueError:
+            except (ValueError, TypeError):
                 tronco_ajustado = "--"
-                cabeza_ajustada = "--"
-                cuello_ajustado = "--"
         else:
             tronco_ajustado = "--"
+
+        # Calcular cabeza ajustada (Ángulo de la cabeza del video - Beta)
+        if c_vid is not None and c_vid != "--" and beta_val is not None:
+            try:
+                c_vid_int = int(round(float(c_vid)))
+                cabeza_ajustada = c_vid_int - beta_val
+            except (ValueError, TypeError):
+                cabeza_ajustada = "--"
+        else:
             cabeza_ajustada = "--"
+
+        # Calcular cuello ajustado si ambos están calculados
+        if cabeza_ajustada != "--" and tronco_ajustado != "--":
+            cuello_ajustado = cabeza_ajustada - tronco_ajustado
+        else:
             cuello_ajustado = "--"
 
         sheet.append([
@@ -122,6 +144,13 @@ def registrar_posturas_excel(
             f_data.get("frames_acumulados") if f_data.get("frames_acumulados") is not None else 0,
             fecha_hora_analisis
         ])
+
+        # Aplicar formato de datos a las celdas de la fila agregada
+        last_row = sheet.max_row
+        for col_idx in [5, 8, 9, 10]:
+            cell = sheet.cell(row=last_row, column=col_idx)
+            cell.fill = dark_blue_fill
+            cell.font = white_font_data
 
     workbook.save(excel_path)
     workbook.close()

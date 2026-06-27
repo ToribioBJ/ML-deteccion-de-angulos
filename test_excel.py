@@ -89,5 +89,50 @@ class TestExcelExporter(unittest.TestCase):
         
         wb.close()
 
+    def test_exporter_with_missing_reference_values(self):
+        frames_data = [
+            {
+                "frame_idx": 0,
+                "angulo_tronco": 20,
+                "angulo_cabeza": None, # cabeza no detectada
+                "angulo_cuello": None,
+                "angulo_hombro": 15,
+                "lado_usado": "Derecho",
+                "tiempo_postura": 0.033,
+                "frames_acumulados": 1
+            }
+        ]
+        
+        # alfa = 15, beta = None (sin referencia de cabeza)
+        # tronco_ajustado = 20 - 15 = 5
+        # cabeza_ajustada = "--"
+        # cuello_ajustado = "--"
+        
+        num_regs = registrar_posturas_excel(
+            excel_path=self.excel_path,
+            nombre="Juan Pérez",
+            archivo_origen="test_video.mp4",
+            frames_data=frames_data,
+            alfa=15.0,
+            beta=None
+        )
+        
+        self.assertEqual(num_regs, 1)
+        self.assertTrue(os.path.exists(self.excel_path))
+        
+        wb = openpyxl.load_workbook(self.excel_path)
+        sheet = wb["Registro Posturas"]
+        
+        row_data = [cell.value for cell in sheet[2]]
+        self.assertEqual(row_data[2], 15)    # alfa
+        self.assertEqual(row_data[3], 20)    # angulo_tronco_video
+        self.assertEqual(row_data[4], 5)     # tronco_ajustado (20 - 15)
+        self.assertEqual(row_data[5], "--")  # beta es None
+        self.assertEqual(row_data[6], "--")  # angulo_cabeza_video es None
+        self.assertEqual(row_data[7], "--")  # cabeza_ajustada es "--"
+        self.assertEqual(row_data[8], "--")  # cuello_ajustado es "--"
+        
+        wb.close()
+
 if __name__ == "__main__":
     unittest.main()

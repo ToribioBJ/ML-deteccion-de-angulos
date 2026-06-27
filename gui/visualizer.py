@@ -138,6 +138,13 @@ class VisualizerFrame(ctk.CTkFrame):
         new_w = max(10, new_w)
         new_h = max(10, new_h)
         
+        # Guardar parámetros para el mapeo de clics
+        self.last_scaling = scaling
+        self.last_new_w = new_w
+        self.last_new_h = new_h
+        self.last_raw_w = img_w
+        self.last_raw_h = img_h
+
         # Convertir a CTkImage usando la imagen en resolución original
         # para mantener la nitidez (HD) al aplicar escala DPI
         ctk_img = ctk.CTkImage(
@@ -153,6 +160,46 @@ class VisualizerFrame(ctk.CTkFrame):
             self.lbl_viewer.configure(image=ctk_img, text="")
         except Exception as e:
             print(f"Advertencia: No se pudo renderizar el fotograma en la interfaz ({e})")
+
+    def get_click_coords(self, event):
+        """Traduce la coordenada del evento clic a coordenadas reales de la imagen."""
+        if self.raw_current_frame is None:
+            return None
+            
+        try:
+            scaling = getattr(self, "last_scaling", 1.0)
+            new_w = getattr(self, "last_new_w", None)
+            new_h = getattr(self, "last_new_h", None)
+            raw_w = getattr(self, "last_raw_w", None)
+            raw_h = getattr(self, "last_raw_h", None)
+            
+            if new_w is None or new_h is None or raw_w is None or raw_h is None:
+                return None
+                
+            # Píxeles físicos ocupados por la imagen en la interfaz
+            displayed_w = new_w * scaling
+            displayed_h = new_h * scaling
+            
+            # El evento se enlaza a self.lbl_viewer._label (el widget interno tkinter.Label
+            # de CustomTkinter), el cual se ajusta exactamente al tamaño físico de la imagen.
+            # Por lo tanto, event.x y event.y ya están en el sistema de coordenadas de la imagen.
+            click_x_img = event.x
+            click_y_img = event.y
+            
+            # Verificar si el clic cae dentro de la imagen
+            if 0 <= click_x_img <= displayed_w and 0 <= click_y_img <= displayed_h:
+                # Mapear de píxeles físicos a resolución original de la imagen
+                raw_x = int(round(click_x_img * (raw_w / displayed_w)))
+                raw_y = int(round(click_y_img * (raw_h / displayed_h)))
+                
+                # Asegurar límites reales de la imagen
+                raw_x = max(0, min(raw_w - 1, raw_x))
+                raw_y = max(0, min(raw_h - 1, raw_y))
+                return (raw_x, raw_y)
+        except Exception as e:
+            print(f"Error al calcular coordenadas de clic: {e}")
+            
+        return None
 
     def reset_visor(self):
         """Limpia el visor y restablece el mensaje predeterminado."""

@@ -80,39 +80,50 @@ class DashboardFrame(ctk.CTkFrame):
 
     def actualizar_metricas(self, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado, tiempo_actual):
         """Actualiza las tarjetas de datos con el ángulo, color y tiempo correspondiente."""
-        self.lbl_val_tronco_act.configure(text=f"{int(round(angulo_tronco))}°")
-        self.lbl_val_cabeza_act.configure(text=f"{int(round(angulo_cabeza))}°")
-        self.lbl_val_cuello_act.configure(text=f"{int(round(angulo_cuello))}°")
-        self.lbl_val_hombro_act.configure(text=f"{int(round(angulo_hombro))}°")
-        self.lbl_val_lado.configure(text=str(lado))
-        self.lbl_val_tiempo.configure(text=f"{tiempo_actual:.2f}s")
-        
-        # Lógica de color según inclinación de la espalda
-        if angulo_tronco < 15.0:
-            color_tronco = COLOR_PALETTE["Verde Neón"]["hex"]
-        elif angulo_tronco < 40.0:
-            color_tronco = COLOR_PALETTE["Naranja"]["hex"]
+        if angulo_tronco is not None:
+            self.lbl_val_tronco_act.configure(text=f"{int(round(angulo_tronco))}°")
+            # Lógica de color según inclinación de la espalda
+            if angulo_tronco < 15.0:
+                color_tronco = COLOR_PALETTE["Verde Neón"]["hex"]
+            elif angulo_tronco < 40.0:
+                color_tronco = COLOR_PALETTE["Naranja"]["hex"]
+            else:
+                color_tronco = COLOR_PALETTE["Rojo Coral"]["hex"]
+            self.lbl_val_tronco_act.configure(text_color=color_tronco)
         else:
-            color_tronco = COLOR_PALETTE["Rojo Coral"]["hex"]
-        self.lbl_val_tronco_act.configure(text_color=color_tronco)
+            self.lbl_val_tronco_act.configure(text="--°", text_color="white")
 
-        # Cabeza se mantiene neutral
-        self.lbl_val_cabeza_act.configure(text_color="white")
-
-        # Lógica de color según inclinación del cuello
-        if angulo_cuello < 10.0:
-            color_cuello = COLOR_PALETTE["Verde Neón"]["hex"]
-        elif angulo_cuello < 20.0:
-            color_cuello = COLOR_PALETTE["Naranja"]["hex"]
+        if angulo_cabeza is not None:
+            self.lbl_val_cabeza_act.configure(text=f"{int(round(angulo_cabeza))}°")
+            self.lbl_val_cabeza_act.configure(text_color="white")
         else:
-            color_cuello = COLOR_PALETTE["Rojo Coral"]["hex"]
-        self.lbl_val_cuello_act.configure(text_color=color_cuello)
+            self.lbl_val_cabeza_act.configure(text="--°", text_color="white")
 
-        # Lógica de color según inclinación del hombro
-        if angulo_hombro < 20.0:
-            color_hombro = COLOR_PALETTE["Verde Neón"]["hex"]
-        elif angulo_hombro < 60.0:
-            color_hombro = COLOR_PALETTE["Naranja"]["hex"]
+        if angulo_cuello is not None:
+            self.lbl_val_cuello_act.configure(text=f"{int(round(angulo_cuello))}°")
+            # Lógica de color según inclinación del cuello
+            if angulo_cuello < 10.0:
+                color_cuello = COLOR_PALETTE["Verde Neón"]["hex"]
+            elif angulo_cuello < 20.0:
+                color_cuello = COLOR_PALETTE["Naranja"]["hex"]
+            else:
+                color_cuello = COLOR_PALETTE["Rojo Coral"]["hex"]
+            self.lbl_val_cuello_act.configure(text_color=color_cuello)
         else:
-            color_hombro = COLOR_PALETTE["Rojo Coral"]["hex"]
-        self.lbl_val_hombro_act.configure(text_color=color_hombro)
+            self.lbl_val_cuello_act.configure(text="--°", text_color="white")
+
+        if angulo_hombro is not None:
+            self.lbl_val_hombro_act.configure(text=f"{int(round(angulo_hombro))}°")
+            # Lógica de color según inclinación del hombro
+            if angulo_hombro < 20.0:
+                color_hombro = COLOR_PALETTE["Verde Neón"]["hex"]
+            elif angulo_hombro < 60.0:
+                color_hombro = COLOR_PALETTE["Naranja"]["hex"]
+            else:
+                color_hombro = COLOR_PALETTE["Rojo Coral"]["hex"]
+            self.lbl_val_hombro_act.configure(text_color=color_hombro)
+        else:
+            self.lbl_val_hombro_act.configure(text="--°", text_color="white")
+
+        self.lbl_val_lado.configure(text=str(lado) if lado is not None else "--")
+        self.lbl_val_tiempo.configure(text=f"{tiempo_actual:.2f}s" if tiempo_actual is not None else "0.00s")

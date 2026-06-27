@@ -1,6 +1,7 @@
 import os
 import cv2
 import queue
+import math
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
@@ -76,6 +77,18 @@ class AngleDetectorApp(ctk.CTk):
         self.referencia_landmarks = None
         self.alfa = None
         self.beta = None
+
+        # Variables de cuello manual y tracking
+        self.punto_cuello_manual = None
+        self.punto_cuello_manual_ref = None
+        self.tracking_lost = False
+
+        # Control de exportación única por video
+        self.exported_current_video = False
+
+        # Timeline del video
+        self.video_total_frames = 0
+        self._seeking = False
         
         # Inicializar trackers de sesión
         self.tracker = PostureTracker()
@@ -101,8 +114,7 @@ class AngleDetectorApp(ctk.CTk):
             on_confianza_cambiada=self.on_confianza_change,
             on_registrar_excel=self.registrar_en_excel,
             on_play=self.play_video,
-            on_pause=self.pause_video,
-            on_guardar=self.guardar_captura
+            on_pause=self.pause_video
         )
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
 
@@ -118,9 +130,28 @@ class AngleDetectorApp(ctk.CTk):
         self.vis_container.grid_rowconfigure(0, weight=1)
         self.vis_container.grid_columnconfigure((0, 1), weight=1)
 
+        # Timeline / barra de progreso del video
+        self.frm_timeline = ctk.CTkFrame(self.main_container, fg_color="transparent", height=30)
+        self.frm_timeline.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 0))
+        self.frm_timeline.grid_columnconfigure(1, weight=1)
+
+        self.lbl_time = ctk.CTkLabel(self.frm_timeline, text="0:00 / 0:00", font=ctk.CTkFont(size=11))
+        self.lbl_time.grid(row=0, column=0, padx=(0, 10))
+
+        self.sld_timeline = ctk.CTkSlider(
+            self.frm_timeline,
+            from_=0,
+            to=100,
+            number_of_steps=100,
+            command=self._on_timeline_seek
+        )
+        self.sld_timeline.grid(row=0, column=1, sticky="ew")
+        self.sld_timeline.set(0)
+        self.sld_timeline.configure(state="disabled")
+
         # Dashboard inferior
         self.dashboard = DashboardFrame(self.main_container)
-        self.dashboard.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 20))
+        self.dashboard.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
 
         # Visor de la imagen de referencia (página izquierda)
         self.visualizer_ref = VisualizerFrame(
@@ -141,6 +172,10 @@ class AngleDetectorApp(ctk.CTk):
             on_resize_callback=self.actualizar_analisis_imagen
         )
         self.visualizer.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+
+        # Enlazar eventos de clic del mouse para selección manual de cuello
+        self.visualizer.lbl_viewer.bind("<Button-1>", self.on_visualizer_click)
+        self.visualizer_ref.lbl_viewer.bind("<Button-1>", self.on_visualizer_ref_click)
 
     # --- MANEJADORES DE EVENTOS DE CONFIGURACIÓN ---
     def on_color_change(self, val):
@@ -186,6 +221,7 @@ class AngleDetectorApp(ctk.CTk):
             self.referencia_filepath = file_path
             self.referencia_raw_frame = frame
             self.visualizer_ref.raw_current_frame = frame
+            self.punto_cuello_manual_ref = None
             
             # Procesar landmarks de pose para la imagen de referencia
             self.referencia_landmarks = self.detector.procesar_frame(frame)
@@ -214,26 +250,27 @@ class AngleDetectorApp(ctk.CTk):
         frame_a_dibujar = self.referencia_raw_frame.copy()
         h, w, _ = frame_a_dibujar.shape
         lado_config = self.sidebar.get_lado()
-        color_nombre = self.sidebar.get_color_name()
-        color_bgr = COLOR_PALETTE.get(color_nombre, ROSADO)
+        color_tronco_bgr = COLOR_PALETTE.get(self.sidebar.get_color_tronco_name(), ROSADO)
+        color_cabeza_bgr = COLOR_PALETTE.get(self.sidebar.get_color_cabeza_name(), ROSADO)
+        color_brazo_bgr = COLOR_PALETTE.get(self.sidebar.get_color_brazo_name(), ROSADO)
         
         if self.referencia_landmarks:
             p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_usado = obtener_landmarks_analisis(
                 self.referencia_landmarks, lado_config, w, h
             )
             # Calcular ángulos base de referencia
-            self.alfa = calcular_flexion_tronco(p_hombro, p_cadera)
+            if self.punto_cuello_manual_ref is not None:
+                self.alfa = calcular_flexion_tronco(self.punto_cuello_manual_ref, p_cadera)
+            else:
+                self.alfa = None
             self.beta = calcular_angulo_cabeza(p_oreja, p_ojo)
             
             # Configuración de dibujo estético para la referencia
             dibujo_config = {
-                "color_vertical": color_bgr,
-                "color_tronco": color_bgr,
-                "color_cabeza": color_bgr,
-                "color_brazo": color_bgr,
-                "color_arco_borde": color_bgr,
-                "color_arco": color_bgr,
-                "color_puntos": color_bgr,
+                "color_vertical": color_tronco_bgr,
+                "color_tronco": color_tronco_bgr,
+                "color_cabeza": color_cabeza_bgr,
+                "color_brazo": color_brazo_bgr,
                 "color_texto": BLANCO,
                 "grosor_lineas": 3,
                 "grosor_tronco": 5,
@@ -249,12 +286,16 @@ class AngleDetectorApp(ctk.CTk):
                 "radio_codo": 22,
                 "transparencia_arco": 0.28,
                 "dibujar_texto": True,
-                "dibujar_brazo": False
+                "dibujar_brazo": False,
+                "es_referencia": True
             }
+            
+            angulo_cuello_ref = self.beta - self.alfa if self.alfa is not None else None
             
             dibujar_analisis_completo(
                 frame_a_dibujar, p_cadera, p_hombro, p_oreja, p_codo, p_ojo,
-                self.alfa, self.beta, self.beta - self.alfa, 0.0, config=dibujo_config
+                self.alfa, self.beta, angulo_cuello_ref, 0.0, config=dibujo_config,
+                punto_cuello_manual=self.punto_cuello_manual_ref
             )
             
             # Mostrar la imagen con el overlay especial
@@ -274,6 +315,12 @@ class AngleDetectorApp(ctk.CTk):
         self.tracker.reset()
         self.dashboard.reset_valores()
         self.visualizer.reset_visor()
+        self.punto_cuello_manual = None
+        self.tracking_lost = False
+        self.exported_current_video = False
+        self.sld_timeline.set(0)
+        self.sld_timeline.configure(state="disabled")
+        self.lbl_time.configure(text="0:00 / 0:00")
         
         file_path = filedialog.askopenfilename(
             parent=self,
@@ -308,6 +355,19 @@ class AngleDetectorApp(ctk.CTk):
         else:
             self.file_type = "video"
             self.sidebar.configurar_estados_archivo("video")
+            # Obtener total de frames del video para la timeline
+            cap_info = cv2.VideoCapture(file_path)
+            self.video_total_frames = int(cap_info.get(cv2.CAP_PROP_FRAME_COUNT))
+            video_fps = cap_info.get(cv2.CAP_PROP_FPS)
+            if video_fps <= 0 or math.isnan(video_fps):
+                video_fps = 30.0
+            cap_info.release()
+            if self.video_total_frames > 0:
+                self.sld_timeline.configure(state="normal", to=self.video_total_frames - 1, number_of_steps=max(1, self.video_total_frames - 1))
+                total_secs = self.video_total_frames / video_fps
+                t_min = int(total_secs) // 60
+                t_sec = int(total_secs) % 60
+                self.lbl_time.configure(text=f"0:00 / {t_min}:{t_sec:02d}")
             self.previsualizar_primer_frame()
 
     def previsualizar_primer_frame(self):
@@ -333,8 +393,9 @@ class AngleDetectorApp(ctk.CTk):
         frame_a_dibujar = self.raw_current_frame.copy()
         h, w, _ = frame_a_dibujar.shape
         lado_config = self.sidebar.get_lado()
-        color_nombre = self.sidebar.get_color_name()
-        color_bgr = COLOR_PALETTE.get(color_nombre, ROSADO)
+        color_tronco_bgr = COLOR_PALETTE.get(self.sidebar.get_color_tronco_name(), ROSADO)
+        color_cabeza_bgr = COLOR_PALETTE.get(self.sidebar.get_color_cabeza_name(), ROSADO)
+        color_brazo_bgr = COLOR_PALETTE.get(self.sidebar.get_color_brazo_name(), ROSADO)
         
         # Calcular tiempo de video/reproducción y FPS
         if self.file_type == "video" and frame_idx is not None and self.video_thread is not None:
@@ -344,11 +405,14 @@ class AngleDetectorApp(ctk.CTk):
             fps = 30.0
             t = 0.0
 
-        if self.current_landmarks:
+        if self.current_landmarks and not self.tracking_lost:
             p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
-            angulo_tronco = calcular_flexion_tronco(p_hombro, p_cadera)
+            if self.punto_cuello_manual is not None:
+                angulo_tronco = calcular_flexion_tronco(self.punto_cuello_manual, p_cadera)
+            else:
+                angulo_tronco = None
             angulo_cabeza = calcular_angulo_cabeza(p_oreja, p_ojo)
-            angulo_cuello = angulo_cabeza - angulo_tronco
+            angulo_cuello = angulo_cabeza - angulo_tronco if angulo_tronco is not None else None
             angulo_hombro = calcular_flexion_hombro(p_cadera, p_hombro, p_codo)
             
             # Lógica de segmentos de postura
@@ -358,13 +422,10 @@ class AngleDetectorApp(ctk.CTk):
                 tiempo_postura = 0.0
 
             dibujo_config = {
-                "color_vertical": color_bgr,
-                "color_tronco": color_bgr,
-                "color_cabeza": color_bgr,
-                "color_brazo": color_bgr,
-                "color_arco_borde": color_bgr,
-                "color_arco": color_bgr,
-                "color_puntos": color_bgr,
+                "color_vertical": color_tronco_bgr,
+                "color_tronco": color_tronco_bgr,
+                "color_cabeza": color_cabeza_bgr,
+                "color_brazo": color_brazo_bgr,
                 "color_texto": BLANCO,
                 "grosor_lineas": 3,
                 "grosor_tronco": 5,
@@ -379,12 +440,14 @@ class AngleDetectorApp(ctk.CTk):
                 "radio_cadera": 22,
                 "radio_codo": 22,
                 "transparencia_arco": 0.28,
-                "dibujar_texto": True
+                "dibujar_texto": True,
+                "es_referencia": False
             }
             
             dibujar_analisis_completo(
                 frame_a_dibujar, p_cadera, p_hombro, p_oreja, p_codo, p_ojo,
-                angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, config=dibujo_config
+                angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, config=dibujo_config,
+                punto_cuello_manual=self.punto_cuello_manual
             )
             self.current_processed_frame = frame_a_dibujar
             
@@ -398,9 +461,21 @@ class AngleDetectorApp(ctk.CTk):
                 tiempo_actual=tiempo_postura
             )
         else:
+            if self.tracking_lost:
+                # Dibujar advertencia en rojo en la pantalla
+                cv2.putText(
+                    frame_a_dibujar, 
+                    "ERROR: SEGUIMIENTO DEL CUELLO PERDIDO", 
+                    (30, 50), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.8, 
+                    (0, 0, 255), 
+                    2, 
+                    cv2.LINE_AA
+                )
             self.current_processed_frame = frame_a_dibujar
             
-            # Lógica de segmentos para frame sin pose
+            # Lógica de segmentos para frame sin pose o seguimiento perdido
             if self.file_type == "video" and frame_idx is not None:
                 tiempo_postura = self.tracker.update_no_pose(frame_idx)
             else:
@@ -422,6 +497,15 @@ class AngleDetectorApp(ctk.CTk):
                 self.video_thread.paused = False
                 self.sidebar.configurar_estados_reproduccion(is_playing=True)
             return
+
+        # Validar selección de la base del cuello
+        if self.punto_cuello_manual is None:
+            messagebox.showwarning(
+                "Selección Requerida", 
+                "Por favor, seleccione el punto de la base del cuello en el visor haciendo clic con el mouse antes de iniciar el análisis del video.", 
+                parent=self
+            )
+            return
             
         # Limpiar cola de resultados
         while not self.result_queue.empty():
@@ -430,11 +514,12 @@ class AngleDetectorApp(ctk.CTk):
             except queue.Empty:
                 break
                 
-        # Iniciar hilo secundario
+        # Iniciar hilo secundario con el punto del cuello manual
         self.video_thread = VideoProcessorThread(
             file_path=self.current_filepath,
             detector=self.detector,
-            result_queue=self.result_queue
+            result_queue=self.result_queue,
+            punto_cuello_manual=self.punto_cuello_manual
         )
         self.video_thread.start()
         self.sidebar.configurar_estados_reproduccion(is_playing=True)
@@ -469,12 +554,27 @@ class AngleDetectorApp(ctk.CTk):
                     break
                     
                 if status == "FRAME":
-                    _, frame, landmarks, frame_idx = item
+                    _, frame, landmarks, frame_idx, tracked_neck = item
                     if frame is not None:
                         self.raw_current_frame = frame
                         self.visualizer.raw_current_frame = frame
                         self.current_landmarks = landmarks
+                        self.punto_cuello_manual = tracked_neck
+                        if tracked_neck is None:
+                            self.tracking_lost = True
                         self.actualizar_analisis_imagen(frame_idx=frame_idx)
+                        
+                        # Actualizar timeline del video
+                        if self.video_thread and self.video_total_frames > 0:
+                            self._seeking = True
+                            self.sld_timeline.set(frame_idx)
+                            self._seeking = False
+                            fps = self.video_thread.fps
+                            cur_secs = frame_idx / fps
+                            tot_secs = self.video_total_frames / fps
+                            c_min, c_sec = int(cur_secs) // 60, int(cur_secs) % 60
+                            t_min, t_sec = int(tot_secs) // 60, int(tot_secs) % 60
+                            self.lbl_time.configure(text=f"{c_min}:{c_sec:02d} / {t_min}:{t_sec:02d}")
                         
         except queue.Empty:
             pass
@@ -482,23 +582,6 @@ class AngleDetectorApp(ctk.CTk):
         self.after(15, self.poll_results)
 
     # --- MÉTODOS AUXILIARES ---
-    def guardar_captura(self):
-        if self.current_processed_frame is None:
-            return
-            
-        save_path = filedialog.asksaveasfilename(
-            parent=self,
-            title="Guardar Captura",
-            defaultextension=".png",
-            filetypes=[("Imagen PNG", "*.png"), ("Imagen JPEG", "*.jpg")]
-        )
-        
-        if save_path:
-            try:
-                cv2.imwrite(save_path, self.current_processed_frame)
-                messagebox.showinfo("Éxito", f"Captura guardada correctamente en:\n{save_path}", parent=self)
-            except Exception as e:
-                messagebox.showerror("Error", f"No se pudo guardar la imagen:\n{e}", parent=self)
 
     def registrar_en_excel(self):
         nombre = self.sidebar.get_nombre()
@@ -516,6 +599,16 @@ class AngleDetectorApp(ctk.CTk):
             return
 
         es_video = (self.file_type == "video")
+
+        # Validar que tengamos el punto del cuello manual para la imagen principal si no es video
+        if not es_video and self.punto_cuello_manual is None:
+            messagebox.showwarning("Selección de Cuello Requerida", "Por favor, seleccione el punto de la base del cuello en la imagen principal haciendo clic con el mouse antes de registrar en Excel.", parent=self)
+            return
+
+        # Verificar exportación única por video/archivo
+        if self.exported_current_video:
+            messagebox.showwarning("Ya Exportado", "Los datos de este archivo ya fueron exportados.\nCargue un nuevo archivo o video para volver a exportar.", parent=self)
+            return
         
         # Para videos, verificar que tengamos frames procesados para guardar
         if es_video and not self.tracker.frames_data:
@@ -535,9 +628,12 @@ class AngleDetectorApp(ctk.CTk):
             h, w, _ = self.raw_current_frame.shape
             lado_config = self.sidebar.get_lado()
             p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
-            angulo_tronco = calcular_flexion_tronco(p_hombro, p_cadera)
+            if self.punto_cuello_manual is not None:
+                angulo_tronco = calcular_flexion_tronco(self.punto_cuello_manual, p_cadera)
+            else:
+                angulo_tronco = None
             angulo_cabeza = calcular_angulo_cabeza(p_oreja, p_ojo)
-            angulo_cuello = angulo_cabeza - angulo_tronco
+            angulo_cuello = angulo_cabeza - angulo_tronco if angulo_tronco is not None else None
             angulo_hombro = calcular_flexion_hombro(p_cadera, p_hombro, p_codo)
             
             frames_data = [{
@@ -568,9 +664,66 @@ class AngleDetectorApp(ctk.CTk):
                 mensaje_exito = f"Datos del paciente '{nombre}' registrados correctamente en:\n{os.path.abspath(excel_path)}"
 
             self.sidebar.clear_nombre()
+            self.exported_current_video = True
             messagebox.showinfo("Éxito", mensaje_exito, parent=self)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo escribir en el archivo de Excel:\n{e}\n\nAsegúrese de que el archivo no esté abierto en otra aplicación.", parent=self)
+
+    def on_visualizer_click(self, event):
+        # Permitir clic solo si hay un archivo cargado y el video no se está reproduciendo activamente
+        is_playing = self.video_thread and self.video_thread.is_alive() and not self.video_thread.paused
+        if self.raw_current_frame is None or is_playing:
+            return
+            
+        coords = self.visualizer.get_click_coords(event)
+        if coords:
+            self.punto_cuello_manual = coords
+            self.tracking_lost = False
+            # Re-procesar para dibujar inmediatamente el punto en el visor
+            self.actualizar_analisis_imagen()
+
+    def on_visualizer_ref_click(self, event):
+        if self.referencia_raw_frame is None:
+            return
+            
+        coords = self.visualizer_ref.get_click_coords(event)
+        if coords:
+            self.punto_cuello_manual_ref = coords
+            self.actualizar_analisis_imagen_ref()
+
+    def _on_timeline_seek(self, value):
+        """Maneja el arrastre del slider de timeline para buscar un frame específico."""
+        if self._seeking:
+            return  # Ignore programmatic updates
+        
+        is_playing = self.video_thread and self.video_thread.is_alive() and not self.video_thread.paused
+        if is_playing:
+            return  # No permitir seek durante reproducción activa
+
+        if self.file_type != "video" or not self.current_filepath:
+            return
+
+        target_frame = int(round(value))
+        cap = cv2.VideoCapture(self.current_filepath)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+        ret, frame = cap.read()
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0 or math.isnan(fps):
+            fps = 30.0
+        cap.release()
+
+        if ret:
+            self.raw_current_frame = frame
+            self.visualizer.raw_current_frame = frame
+            self.current_landmarks = self.detector.procesar_frame(frame)
+            self.actualizar_analisis_imagen()
+
+            # Actualizar etiqueta de tiempo
+            cur_secs = target_frame / fps
+            tot_secs = self.video_total_frames / fps
+            c_min, c_sec = int(cur_secs) // 60, int(cur_secs) % 60
+            t_min, t_sec = int(tot_secs) // 60, int(tot_secs) % 60
+            self.lbl_time.configure(text=f"{c_min}:{c_sec:02d} / {t_min}:{t_sec:02d}")
 
     def on_closing(self):
         self.stop_video_thread()

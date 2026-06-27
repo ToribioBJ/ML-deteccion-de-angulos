@@ -56,15 +56,15 @@ class PoseDetector:
         """Libera los recursos del detector."""
         self.detector.close()
 
-def calcular_flexion_tronco(hombro, cadera):
+def calcular_flexion_tronco(punto_superior, cadera):
     """
     Calcula el ángulo de flexión del tronco en grados con respecto a la vertical.
-    hombro: [x, y] coordenadas en píxeles.
+    punto_superior: [x, y] coordenadas en píxeles (base del cuello manual).
     cadera: [x, y] coordenadas en píxeles.
     """
     vector_tronco = np.array([
-        hombro[0] - cadera[0],
-        hombro[1] - cadera[1]
+        punto_superior[0] - cadera[0],
+        punto_superior[1] - cadera[1]
     ])
     vector_vertical = np.array([0, -1])
 
@@ -169,10 +169,10 @@ def obtener_landmarks_analisis(landmarks, lado, ancho, alto):
     
     return p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_detectado
 
-def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, config=None):
+def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, config=None, punto_cuello_manual=None):
     """
-    Dibuja las guías de flexión de tronco (en cadera), ángulo de cabeza (en oreja, relativo a la vertical),
-    el valor del cuello, y flexión del hombro (entre cadera, hombro y codo).
+    Dibuja las guías de flexión de tronco (en cadera, usando punto manual), ángulo de cabeza (en oreja),
+    y flexión del hombro (entre cadera, hombro y codo, solo en video).
     """
     ROSADO = (180, 105, 255)
     default_config = {
@@ -198,7 +198,8 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_t
         "radio_arco_cabeza": 70,
         "radio_arco_hombro": 70,
         "transparencia_arco": 0.35,
-        "dibujar_texto": True
+        "dibujar_texto": True,
+        "es_referencia": False
     }
     
     if config is not None:
@@ -210,10 +211,7 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_t
     col_t = cfg.get("color_tronco", ROSADO)
     col_c = cfg.get("color_cabeza", ROSADO)
     col_h = cfg.get("color_brazo", ROSADO)
-    col_vert = cfg.get("color_vertical", ROSADO)
-    col_arco_borde = cfg.get("color_arco_borde", ROSADO)
-    col_arco = cfg.get("color_arco", ROSADO)
-
+    
     # Redondear coordenadas a enteros para las funciones de dibujo de OpenCV
     xc, yc = int(round(cadera[0])), int(round(cadera[1]))
     xh, yh = int(round(hombro[0])), int(round(hombro[1]))
@@ -221,61 +219,71 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_t
     xe, ye = int(round(codo[0])), int(round(codo[1]))
     xojo, yojo = int(round(ojo[0])), int(round(ojo[1]))
 
-    # --- 1. DIBUJAR TRONCO ---
-    dist_tronco = int(math.hypot(xh - xc, yh - yc))
-    longitud_vertical = max(200, int(dist_tronco * 0.8))
-    
-    # Vertical de la cadera
-    cv2.line(imagen, (xc, yc), (xc, yc - longitud_vertical), col_vert, cfg["grosor_lineas"])
-    # Línea del tronco
-    cv2.line(imagen, (xc, yc), (xh, yh), col_t, cfg["grosor_tronco"])
-
-    # Arco del tronco (sombras)
     overlay = imagen.copy()
-    dx_t = xh - xc
-    dy_t = yh - yc
-    ang_tronco = math.degrees(math.atan2(dy_t, dx_t))
-    inicio_t = -90
-    fin_t = ang_tronco
-    if fin_t < inicio_t:
-        inicio_t, fin_t = fin_t, inicio_t
 
-    cv2.ellipse(overlay, (xc, yc), (cfg["radio_arco"], cfg["radio_arco"]), 0, inicio_t, fin_t, col_arco, -1)
+    # --- 1. DIBUJAR TRONCO ---
+    # Solo se dibuja si hay punto manual y angulo_tronco no es None
+    has_trunk = (punto_cuello_manual is not None and angulo_tronco is not None)
+    if has_trunk:
+        xn, yn = int(round(punto_cuello_manual[0])), int(round(punto_cuello_manual[1]))
+        dist_tronco = int(math.hypot(xn - xc, yn - yc))
+        longitud_vertical = max(200, int(dist_tronco * 0.8))
+        
+        # Vertical de la cadera (usa Color Tronco - col_t)
+        cv2.line(imagen, (xc, yc), (xc, yc - longitud_vertical), col_t, cfg["grosor_lineas"])
+        # Línea del tronco: cadera a punto manual (usa Color Tronco - col_t)
+        cv2.line(imagen, (xc, yc), (xn, yn), col_t, cfg["grosor_tronco"])
+        
+        # Arco del tronco (sombras en overlay) (usa Color Tronco - col_t)
+        dx_t = xn - xc
+        dy_t = yn - yc
+        ang_tronco = math.degrees(math.atan2(dy_t, dx_t))
+        inicio_t = -90
+        fin_t = ang_tronco
+        if fin_t < inicio_t:
+            inicio_t, fin_t = fin_t, inicio_t
+        cv2.ellipse(overlay, (xc, yc), (cfg["radio_arco"], cfg["radio_arco"]), 0, inicio_t, fin_t, col_t, -1)
 
     # --- 2. DIBUJAR CABEZA (Línea vertical y línea Oreja-Ojo) ---
-    dist_cabeza = int(math.hypot(xojo - xo, yojo - yo))
-    longitud_vert_cabeza = max(100, int(dist_cabeza * 1.5))
+    # Siempre se dibuja si angulo_cabeza no es None
+    has_head = (angulo_cabeza is not None)
+    if has_head:
+        dist_cabeza = int(math.hypot(xojo - xo, yojo - yo))
+        longitud_vert_cabeza = max(100, int(dist_cabeza * 1.5))
 
-    # Línea vertical de referencia desde la oreja hacia arriba
-    cv2.line(imagen, (xo, yo), (xo, yo - longitud_vert_cabeza), col_vert, cfg["grosor_lineas"])
-    # Línea de la cabeza (Oreja a Ojo, prolongada un poco más)
-    dx_cab = xojo - xo
-    dy_cab = yojo - yo
-    factor_prolongacion = 1.6
-    x_end_cab = int(xo + dx_cab * factor_prolongacion)
-    y_end_cab = int(yo + dy_cab * factor_prolongacion)
-    cv2.line(imagen, (xo, yo), (x_end_cab, y_end_cab), col_c, cfg["grosor_cabeza"])
+        # Línea vertical de referencia desde la oreja hacia arriba (usa Color Cabeza - col_c)
+        cv2.line(imagen, (xo, yo), (xo, yo - longitud_vert_cabeza), col_c, cfg["grosor_lineas"])
+        # Línea de la cabeza: Oreja a Ojo (usa Color Cabeza - col_c)
+        dx_cab = xojo - xo
+        dy_cab = yojo - yo
+        factor_prolongacion = 1.6
+        x_end_cab = int(xo + dx_cab * factor_prolongacion)
+        y_end_cab = int(yo + dy_cab * factor_prolongacion)
+        cv2.line(imagen, (xo, yo), (x_end_cab, y_end_cab), col_c, cfg["grosor_cabeza"])
 
-    # Arco de la cabeza (entre la vertical y la línea oreja-ojo)
-    dx_o = xojo - xo
-    dy_o = yojo - yo
-    ang_ojo = math.degrees(math.atan2(dy_o, dx_o))
-    inicio_c = -90
-    fin_c = ang_ojo
-    if fin_c < inicio_c:
-        inicio_c, fin_c = fin_c, inicio_c
+        # Arco de la cabeza (entre la vertical y la línea oreja-ojo en overlay) (usa Color Cabeza - col_c)
+        ang_ojo = math.degrees(math.atan2(dy_cab, dx_cab))
+        inicio_c = -90
+        fin_c = ang_ojo
+        if fin_c < inicio_c:
+            inicio_c, fin_c = fin_c, inicio_c
 
-    # Evitar arco mayor de 180 (camino más corto)
-    diff = fin_c - inicio_c
-    if diff > 180:
-        inicio_c, fin_c = fin_c, inicio_c + 360
+        # Evitar arco mayor de 180 (camino más corto)
+        diff = fin_c - inicio_c
+        if diff > 180:
+            inicio_c, fin_c = fin_c, inicio_c + 360
+        cv2.ellipse(overlay, (xo, yo), (cfg["radio_arco_cabeza"], cfg["radio_arco_cabeza"]), 0, inicio_c, fin_c, col_c, -1)
 
-    cv2.ellipse(overlay, (xo, yo), (cfg["radio_arco_cabeza"], cfg["radio_arco_cabeza"]), 0, inicio_c, fin_c, col_arco, -1)
-
-    # --- 3. DIBUJAR BRAZO Y ÁNGULO DEL HOMBRO ---
-    if cfg.get("dibujar_brazo", True):
+    # --- 3. DIBUJAR BRAZO Y ÁNGULO DEL HOMBRO (Solo en video, no en referencia) ---
+    es_referencia = cfg.get("es_referencia", False)
+    has_arm = (not es_referencia and angulo_hombro is not None)
+    if has_arm:
+        # Línea cadera-hombro (usa Color Brazo - col_h)
+        cv2.line(imagen, (xc, yc), (xh, yh), col_h, max(2, cfg["grosor_tronco"] - 2))
+        # Línea hombro-codo (usa Color Brazo - col_h)
         cv2.line(imagen, (xh, yh), (xe, ye), col_h, cfg["grosor_brazo"])
 
+        # Arco del hombro (en overlay) (usa Color Brazo - col_h)
         ang_cadera = math.degrees(math.atan2(yc - yh, xc - xh))
         ang_codo = math.degrees(math.atan2(ye - yh, xe - xh))
         
@@ -287,59 +295,69 @@ def dibujar_analisis_completo(imagen, cadera, hombro, oreja, codo, ojo, angulo_t
         diff_h = fin_h - inicio_h
         if diff_h > 180:
             inicio_h, fin_h = fin_h, inicio_h + 360
-            
-        cv2.ellipse(overlay, (xh, yh), (cfg["radio_arco_hombro"], cfg["radio_arco_hombro"]), 0, inicio_h, fin_h, col_arco, -1)
+        cv2.ellipse(overlay, (xh, yh), (cfg["radio_arco_hombro"], cfg["radio_arco_hombro"]), 0, inicio_h, fin_h, col_h, -1)
 
     # Mezclar transparencia
     cv2.addWeighted(overlay, cfg["transparencia_arco"], imagen, 1 - cfg["transparencia_arco"], 0, imagen)
 
     # Bordes de arcos
-    cv2.ellipse(imagen, (xc, yc), (cfg["radio_arco"], cfg["radio_arco"]), 0, inicio_t, fin_t, col_arco_borde, cfg["grosor_borde_arco"])
-    cv2.ellipse(imagen, (xo, yo), (cfg["radio_arco_cabeza"], cfg["radio_arco_cabeza"]), 0, inicio_c, fin_c, col_arco_borde, cfg["grosor_borde_arco"])
-    if cfg.get("dibujar_brazo", True):
-        cv2.ellipse(imagen, (xh, yh), (cfg["radio_arco_hombro"], cfg["radio_arco_hombro"]), 0, inicio_h, fin_h, col_arco_borde, cfg["grosor_borde_arco"])
+    if has_head:
+        cv2.ellipse(imagen, (xo, yo), (cfg["radio_arco_cabeza"], cfg["radio_arco_cabeza"]), 0, inicio_c, fin_c, col_c, cfg["grosor_borde_arco"])
+    if has_trunk:
+        cv2.ellipse(imagen, (xc, yc), (cfg["radio_arco"], cfg["radio_arco"]), 0, inicio_t, fin_t, col_t, cfg["grosor_borde_arco"])
+    if has_arm:
+        cv2.ellipse(imagen, (xh, yh), (cfg["radio_arco_hombro"], cfg["radio_arco_hombro"]), 0, inicio_h, fin_h, col_h, cfg["grosor_borde_arco"])
 
     # --- 4. DIBUJAR PUNTOS CLAVE ---
-    col_pts = cfg.get("color_puntos", ROSADO)
-    def dibujar_punto_estetico(img, centro):
-        cv2.circle(img, centro, 6, col_pts, -1, cv2.LINE_AA)
+    def dibujar_punto_estetico(img, centro, color_punto):
+        cv2.circle(img, centro, 6, color_punto, -1, cv2.LINE_AA)
         cv2.circle(img, centro, 8, (255, 255, 255), 1, cv2.LINE_AA)
 
     def dibujar_circulo_grande(img, centro, color_borde):
-        # Círculo grande con fondo oscuro y borde del color de la paleta (más grande para legibilidad)
         cv2.circle(img, centro, 24, (40, 30, 20), -1, cv2.LINE_AA)
         cv2.circle(img, centro, 26, color_borde, 2, cv2.LINE_AA)
 
-    dibujar_punto_estetico(imagen, (xojo, yojo))
-    dibujar_punto_estetico(imagen, (xo, yo))
-    if cfg.get("dibujar_brazo", True):
-        dibujar_circulo_grande(imagen, (xh, yh), col_h)
-        dibujar_punto_estetico(imagen, (xe, ye))
-    else:
-        dibujar_punto_estetico(imagen, (xh, yh))
+    # Cabeza (oreja, ojo) siempre se muestran
+    dibujar_punto_estetico(imagen, (xojo, yojo), col_c)
+    dibujar_punto_estetico(imagen, (xo, yo), col_c)
+
+    # Tronco (cadera) siempre se muestra si fue detectado
     dibujar_circulo_grande(imagen, (xc, yc), col_t)
 
-    # --- 5. TEXTOS DE ÁNGULOS (Paleta seleccionada, enteros sin grado para evitar fallas) ---
+    # Punto manual del cuello se muestra si existe
+    if has_trunk:
+        xn, yn = int(round(punto_cuello_manual[0])), int(round(punto_cuello_manual[1]))
+        # Punto manual
+        cv2.circle(imagen, (xn, yn), 8, col_t, -1, cv2.LINE_AA)
+        cv2.circle(imagen, (xn, yn), 10, (255, 255, 255), 1, cv2.LINE_AA)
+
+    # Brazo (hombro, codo) solo se muestran en video
+    if has_arm:
+        dibujar_circulo_grande(imagen, (xh, yh), col_h)
+        dibujar_punto_estetico(imagen, (xe, ye), col_h)
+
+    # --- 5. TEXTOS DE ÁNGULOS ---
     if cfg.get("dibujar_texto", False):
-        # 1. Texto Tronco (dentro del círculo en la cadera, tamaño aumentado para ser visible)
-        texto_tronco = f"{int(round(angulo_tronco))}"
-        (tw_t, th_t), _ = cv2.getTextSize(texto_tronco, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)
-        cv2.putText(imagen, texto_tronco, (int(xc - tw_t / 2), int(yc + th_t / 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.58, col_t, 2, cv2.LINE_AA)
+        # 1. Texto Tronco (dentro del círculo en la cadera)
+        if has_trunk:
+            texto_tronco = f"{int(round(angulo_tronco))}"
+            (tw_t, th_t), _ = cv2.getTextSize(texto_tronco, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)
+            cv2.putText(imagen, texto_tronco, (int(xc - tw_t / 2), int(yc + th_t / 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.58, col_t, 2, cv2.LINE_AA)
 
-        # 2. Texto Cabeza (al costado de su arco sombreado, en el medio de sus 2 lados)
-        ang_c_bis = (inicio_c + fin_c) / 2
-        rad_c_bis = math.radians(ang_c_bis)
-        dist_c = cfg["radio_arco_cabeza"] + 25
-        pos_c = (int(xo + dist_c * math.cos(rad_c_bis)), int(yo + dist_c * math.sin(rad_c_bis)))
-        texto_cabeza = f"{int(round(angulo_cabeza))}"
-        (tw_cab, th_cab), _ = cv2.getTextSize(texto_cabeza, cv2.FONT_HERSHEY_SIMPLEX, 0.70, 2)
-        org_c = (int(pos_c[0] - tw_cab / 2), int(pos_c[1] + th_cab / 2))
-        # Sombra negra gruesa
-        cv2.putText(imagen, texto_cabeza, (org_c[0] + 1, org_c[1] + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (0, 0, 0), 4, cv2.LINE_AA)
-        cv2.putText(imagen, texto_cabeza, org_c, cv2.FONT_HERSHEY_SIMPLEX, 0.70, col_c, 2, cv2.LINE_AA)
+        # 2. Texto Cabeza (al costado de su arco sombreado)
+        if has_head:
+            ang_c_bis = (inicio_c + fin_c) / 2
+            rad_c_bis = math.radians(ang_c_bis)
+            dist_c = cfg["radio_arco_cabeza"] + 25
+            pos_c = (int(xo + dist_c * math.cos(rad_c_bis)), int(yo + dist_c * math.sin(rad_c_bis)))
+            texto_cabeza = f"{int(round(angulo_cabeza))}"
+            (tw_cab, th_cab), _ = cv2.getTextSize(texto_cabeza, cv2.FONT_HERSHEY_SIMPLEX, 0.70, 2)
+            org_c = (int(pos_c[0] - tw_cab / 2), int(pos_c[1] + th_cab / 2))
+            cv2.putText(imagen, texto_cabeza, (org_c[0] + 1, org_c[1] + 1), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (0, 0, 0), 4, cv2.LINE_AA)
+            cv2.putText(imagen, texto_cabeza, org_c, cv2.FONT_HERSHEY_SIMPLEX, 0.70, col_c, 2, cv2.LINE_AA)
 
-        # 3. Texto Brazo (dentro del círculo en el hombro, tamaño aumentado para ser visible)
-        if cfg.get("dibujar_brazo", True):
+        # 3. Texto Brazo (dentro del círculo en el hombro, solo video)
+        if has_arm:
             texto_hombro = f"{int(round(angulo_hombro))}"
             (tw_h, th_h), _ = cv2.getTextSize(texto_hombro, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)
             cv2.putText(imagen, texto_hombro, (int(xh - tw_h / 2), int(yh + th_h / 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.58, col_h, 2, cv2.LINE_AA)
