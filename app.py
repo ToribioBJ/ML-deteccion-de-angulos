@@ -11,6 +11,7 @@ from detector import (
     calcular_flexion_tronco, 
     calcular_angulo_cabeza,
     calcular_flexion_hombro,
+    calcular_flexion_muneca,
     obtener_landmarks_analisis, 
     dibujar_analisis_completo
 )
@@ -81,7 +82,14 @@ class AngleDetectorApp(ctk.CTk):
         # Variables de cuello manual y tracking
         self.punto_cuello_manual = None
         self.punto_cuello_manual_ref = None
+        self.punto_cuello_manual_es_auto = True
+        self.punto_cuello_manual_ref_es_auto = True
         self.tracking_lost = False
+        
+        # Parámetros de proyección del punto manual del cuello (Base Ortogonal Local u, v)
+        self.punto_cuello_u = 0.0
+        self.punto_cuello_v = 0.0
+        self.punto_cuello_lado_activo = "Derecho"
 
         # Control de exportación única por video
         self.exported_current_video = False
@@ -149,6 +157,31 @@ class AngleDetectorApp(ctk.CTk):
         self.sld_timeline.set(0)
         self.sld_timeline.configure(state="disabled")
 
+        # Botones de reproducción en la línea de tiempo (Unicode: ▶ = Play, ⏸ = Pause, ■ = Stop)
+        self.btn_timeline_play = ctk.CTkButton(
+            self.frm_timeline,
+            text="▶",
+            width=30,
+            height=26,
+            command=self._on_timeline_play_click,
+            font=ctk.CTkFont(size=14),
+            state="disabled"
+        )
+        self.btn_timeline_play.grid(row=0, column=2, padx=(10, 5))
+
+        self.btn_timeline_stop = ctk.CTkButton(
+            self.frm_timeline,
+            text="■",
+            width=30,
+            height=26,
+            fg_color="#ef4444",
+            hover_color="#dc2626",
+            command=self._on_timeline_stop_click,
+            font=ctk.CTkFont(size=14),
+            state="disabled"
+        )
+        self.btn_timeline_stop.grid(row=0, column=3, padx=(0, 10))
+
         # Dashboard inferior
         self.dashboard = DashboardFrame(self.main_container)
         self.dashboard.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
@@ -177,12 +210,137 @@ class AngleDetectorApp(ctk.CTk):
         self.visualizer.lbl_viewer.bind("<Button-1>", self.on_visualizer_click)
         self.visualizer_ref.lbl_viewer.bind("<Button-1>", self.on_visualizer_ref_click)
 
+    def calcular_punto_cuello_automatico(self, landmarks, lado, w, h):
+        """
+        Calcula automáticamente la posición inicial del punto manual del cuello.
+        Se define como el punto medio entre:
+          1. El cuello estimado (punto medio entre hombro izquierdo y derecho).
+          2. El hombro activo (izquierdo o derecho según la configuración del lado).
+        """
+        if not landmarks or len(landmarks) < 33:
+            return None
+            
+        # Landmarks de hombros (11 = izquierdo, 12 = derecho)
+        idx_hombro_izq = 11
+        idx_hombro_der = 12
+        
+        # Coordenadas en píxeles
+        p_h_izq = (landmarks[idx_hombro_izq].x * w, landmarks[idx_hombro_izq].y * h)
+        p_h_der = (landmarks[idx_hombro_der].x * w, landmarks[idx_hombro_der].y * h)
+        
+        # Cuello estimado (punto medio de los hombros)
+        p_cuello_est = (
+            (p_h_izq[0] + p_h_der[0]) / 2.0,
+            (p_h_izq[1] + p_h_der[1]) / 2.0
+        )
+        
+        # Determinar hombro activo
+        if lado == "Auto":
+            vis_izq = landmarks[idx_hombro_izq].visibility
+            vis_der = landmarks[idx_hombro_der].visibility
+            p_hombro_activo = p_h_izq if vis_izq >= vis_der else p_h_der
+        elif lado == "Izquierdo":
+            p_hombro_activo = p_h_izq
+        else: # Derecho
+            p_hombro_activo = p_h_der
+            
+        # Retornar el punto medio entre el cuello estimado y el hombro activo
+        p_manual = (
+            (p_cuello_est[0] + p_hombro_activo[0]) / 2.0,
+            (p_cuello_est[1] + p_hombro_activo[1]) / 2.0
+        )
+        return p_manual
+
+    def recalcular_offset_cuello(self):
+        """Calcula las coordenadas locales u y v del punto manual con respecto a la línea de los hombros."""
+        if not self.current_landmarks or self.punto_cuello_manual is None or self.raw_current_frame is None:
+            return
+            
+        h, w, _ = self.raw_current_frame.shape
+        lado_config = self.sidebar.get_lado()
+        
+        # Landmarks de hombros (11 = izquierdo, 12 = derecho)
+        hombro_izq = self.current_landmarks[11]
+        hombro_der = self.current_landmarks[12]
+        
+        x_izq, y_izq = hombro_izq.x * w, hombro_izq.y * h
+        x_der, y_der = hombro_der.x * w, hombro_der.y * h
+        
+        # Centro de los hombros (estimación de cuello)
+        xn = (x_izq + x_der) / 2.0
+        yn = (y_izq + y_der) / 2.0
+            
+        if lado_config == "Auto":
+            self.punto_cuello_lado_activo = "Izquierdo" if hombro_izq.visibility > hombro_der.visibility else "Derecho"
+        else:
+            self.punto_cuello_lado_activo = lado_config
+            
+        xs = x_izq if self.punto_cuello_lado_activo == "Izquierdo" else x_der
+        ys = y_izq if self.punto_cuello_lado_activo == "Izquierdo" else y_der
+        
+        # Vector V de cuello a hombro
+        dx = xs - xn
+        dy = ys - yn
+        
+        D = dx*dx + dy*dy
+        if D == 0:
+            D = 1.0
+            
+        # Calcular coeficientes u y v resolviendo la base ortogonal local
+        px_rel = self.punto_cuello_manual[0] - xn
+        py_rel = self.punto_cuello_manual[1] - yn
+        
+        self.punto_cuello_u = (px_rel * dx + py_rel * dy) / D
+        self.punto_cuello_v = (-px_rel * dy + py_rel * dx) / D
+
+    def calcular_punto_cuello_desde_offset(self, landmarks, w, h):
+        """Calcula las coordenadas (X, Y) del cuello usando u y v locales y los landmarks actuales."""
+        if not landmarks or self.punto_cuello_manual is None or not hasattr(self, 'punto_cuello_u'):
+            return self.punto_cuello_manual
+            
+        hombro_izq = landmarks[11]
+        hombro_der = landmarks[12]
+        
+        x_izq, y_izq = hombro_izq.x * w, hombro_izq.y * h
+        x_der, y_der = hombro_der.x * w, hombro_der.y * h
+        
+        # Centro de hombros
+        xn = (x_izq + x_der) / 2.0
+        yn = (y_izq + y_der) / 2.0
+        
+        xs = x_izq if self.punto_cuello_lado_activo == "Izquierdo" else x_der
+        ys = y_izq if self.punto_cuello_lado_activo == "Izquierdo" else y_der
+        
+        # Vector V actual
+        dx = xs - xn
+        dy = ys - yn
+        
+        # Reconstruir posición usando base local
+        tx = xn + self.punto_cuello_u * dx - self.punto_cuello_v * dy
+        ty = yn + self.punto_cuello_u * dy + self.punto_cuello_v * dx
+        return (tx, ty)
+
     # --- MANEJADORES DE EVENTOS DE CONFIGURACIÓN ---
     def on_color_change(self, val):
         self.actualizar_analisis_imagen()
         self.actualizar_analisis_imagen_ref()
 
     def on_lado_cambiado(self, val):
+        # Si el punto manual actual es automático, recalcularlo con el nuevo lado
+        if self.punto_cuello_manual_es_auto and self.current_landmarks and self.raw_current_frame is not None:
+            h, w, _ = self.raw_current_frame.shape
+            self.punto_cuello_manual = self.calcular_punto_cuello_automatico(
+                self.current_landmarks, val, w, h
+            )
+            self.recalcular_offset_cuello()
+            
+        # Si el punto de referencia manual es automático, recalcularlo con el nuevo lado
+        if self.punto_cuello_manual_ref_es_auto and self.referencia_landmarks and self.referencia_raw_frame is not None:
+            h, w, _ = self.referencia_raw_frame.shape
+            self.punto_cuello_manual_ref = self.calcular_punto_cuello_automatico(
+                self.referencia_landmarks, val, w, h
+            )
+            
         self.actualizar_analisis_imagen()
         self.actualizar_analisis_imagen_ref()
 
@@ -195,11 +353,26 @@ class AngleDetectorApp(ctk.CTk):
             is_playing = self.video_thread and self.video_thread.is_alive() and not self.video_thread.paused
             if self.raw_current_frame is not None and not is_playing:
                 self.current_landmarks = self.detector.procesar_frame(self.raw_current_frame)
+                # Recalcular el punto si es automático
+                if self.punto_cuello_manual_es_auto and self.current_landmarks:
+                    h, w, _ = self.raw_current_frame.shape
+                    lado_config = self.sidebar.get_lado()
+                    self.punto_cuello_manual = self.calcular_punto_cuello_automatico(
+                        self.current_landmarks, lado_config, w, h
+                    )
+                    self.recalcular_offset_cuello()
             self.actualizar_analisis_imagen()
 
             # Re-detectar pose en la imagen de referencia
             if self.referencia_raw_frame is not None:
                 self.referencia_landmarks = self.detector.procesar_frame(self.referencia_raw_frame)
+                # Recalcular el punto de referencia si es automático
+                if self.punto_cuello_manual_ref_es_auto and self.referencia_landmarks:
+                    h, w, _ = self.referencia_raw_frame.shape
+                    lado_config = self.sidebar.get_lado()
+                    self.punto_cuello_manual_ref = self.calcular_punto_cuello_automatico(
+                        self.referencia_landmarks, lado_config, w, h
+                    )
                 self.actualizar_analisis_imagen_ref()
         except Exception as e:
             print(f"Error al cambiar confianza: {e}")
@@ -222,6 +395,7 @@ class AngleDetectorApp(ctk.CTk):
             self.referencia_raw_frame = frame
             self.visualizer_ref.raw_current_frame = frame
             self.punto_cuello_manual_ref = None
+            self.punto_cuello_manual_ref_es_auto = True
             
             # Procesar landmarks de pose para la imagen de referencia
             self.referencia_landmarks = self.detector.procesar_frame(frame)
@@ -238,6 +412,13 @@ class AngleDetectorApp(ctk.CTk):
                 self.beta = None
                 self.visualizer_ref.reset_visor()
                 return
+            
+            # Calcular punto automático inicial para referencia
+            h, w, _ = frame.shape
+            lado_config = self.sidebar.get_lado()
+            self.punto_cuello_manual_ref = self.calcular_punto_cuello_automatico(
+                self.referencia_landmarks, lado_config, w, h
+            )
                 
             self.actualizar_analisis_imagen_ref()
         else:
@@ -253,9 +434,15 @@ class AngleDetectorApp(ctk.CTk):
         color_tronco_bgr = COLOR_PALETTE.get(self.sidebar.get_color_tronco_name(), ROSADO)
         color_cabeza_bgr = COLOR_PALETTE.get(self.sidebar.get_color_cabeza_name(), ROSADO)
         color_brazo_bgr = COLOR_PALETTE.get(self.sidebar.get_color_brazo_name(), ROSADO)
+        color_muneca_bgr = COLOR_PALETTE.get(self.sidebar.get_color_muneca_name(), ROSADO)
+        
+        mostrar_tronco = self.sidebar.get_mostrar_tronco()
+        mostrar_cabeza = self.sidebar.get_mostrar_cabeza()
+        mostrar_brazo = self.sidebar.get_mostrar_brazo()
+        mostrar_muneca = self.sidebar.get_mostrar_muneca()
         
         if self.referencia_landmarks:
-            p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_usado = obtener_landmarks_analisis(
+            p_hombro, p_cadera, p_oreja, p_codo, p_ojo, p_muneca_ref, p_mano_ref, lado_usado = obtener_landmarks_analisis(
                 self.referencia_landmarks, lado_config, w, h
             )
             # Calcular ángulos base de referencia
@@ -271,6 +458,7 @@ class AngleDetectorApp(ctk.CTk):
                 "color_tronco": color_tronco_bgr,
                 "color_cabeza": color_cabeza_bgr,
                 "color_brazo": color_brazo_bgr,
+                "color_muneca": color_muneca_bgr,
                 "color_texto": BLANCO,
                 "grosor_lineas": 3,
                 "grosor_tronco": 5,
@@ -287,7 +475,11 @@ class AngleDetectorApp(ctk.CTk):
                 "transparencia_arco": 0.28,
                 "dibujar_texto": True,
                 "dibujar_brazo": False,
-                "es_referencia": True
+                "es_referencia": True,
+                "mostrar_tronco": mostrar_tronco,
+                "mostrar_cabeza": mostrar_cabeza,
+                "mostrar_brazo": mostrar_brazo,
+                "mostrar_muneca": mostrar_muneca
             }
             
             angulo_cuello_ref = self.beta - self.alfa if self.alfa is not None else None
@@ -295,7 +487,8 @@ class AngleDetectorApp(ctk.CTk):
             dibujar_analisis_completo(
                 frame_a_dibujar, p_cadera, p_hombro, p_oreja, p_codo, p_ojo,
                 self.alfa, self.beta, angulo_cuello_ref, 0.0, config=dibujo_config,
-                punto_cuello_manual=self.punto_cuello_manual_ref
+                punto_cuello_manual=self.punto_cuello_manual_ref,
+                muneca=p_muneca_ref, mano=p_mano_ref, angulo_muneca=None
             )
             
             # Mostrar la imagen con el overlay especial
@@ -316,11 +509,14 @@ class AngleDetectorApp(ctk.CTk):
         self.dashboard.reset_valores()
         self.visualizer.reset_visor()
         self.punto_cuello_manual = None
+        self.punto_cuello_manual_es_auto = True
         self.tracking_lost = False
         self.exported_current_video = False
         self.sld_timeline.set(0)
         self.sld_timeline.configure(state="disabled")
         self.lbl_time.configure(text="0:00 / 0:00")
+        self.btn_timeline_play.configure(state="disabled", text="▶")
+        self.btn_timeline_stop.configure(state="disabled")
         
         file_path = filedialog.askopenfilename(
             parent=self,
@@ -349,6 +545,15 @@ class AngleDetectorApp(ctk.CTk):
                 self.raw_current_frame = frame
                 self.visualizer.raw_current_frame = frame
                 self.current_landmarks = self.detector.procesar_frame(frame)
+                
+                # Calcular punto del cuello automático para la imagen y calcular offset
+                if self.current_landmarks:
+                    h, w, _ = frame.shape
+                    lado_config = self.sidebar.get_lado()
+                    self.punto_cuello_manual = self.calcular_punto_cuello_automatico(
+                        self.current_landmarks, lado_config, w, h
+                    )
+                    self.recalcular_offset_cuello()
                 self.actualizar_analisis_imagen()
             else:
                 self.sidebar.set_nombre_archivo("Error al leer la imagen seleccionada.", "red")
@@ -368,6 +573,8 @@ class AngleDetectorApp(ctk.CTk):
                 t_min = int(total_secs) // 60
                 t_sec = int(total_secs) % 60
                 self.lbl_time.configure(text=f"0:00 / {t_min}:{t_sec:02d}")
+                self.btn_timeline_play.configure(state="normal")
+                self.btn_timeline_stop.configure(state="normal")
             self.previsualizar_primer_frame()
 
     def previsualizar_primer_frame(self):
@@ -382,6 +589,15 @@ class AngleDetectorApp(ctk.CTk):
             self.raw_current_frame = frame
             self.visualizer.raw_current_frame = frame
             self.current_landmarks = self.detector.procesar_frame(frame)
+            
+            # Calcular punto del cuello automático para el video previsualizado y calcular offset
+            if self.current_landmarks:
+                h, w, _ = frame.shape
+                lado_config = self.sidebar.get_lado()
+                self.punto_cuello_manual = self.calcular_punto_cuello_automatico(
+                    self.current_landmarks, lado_config, w, h
+                )
+                self.recalcular_offset_cuello()
             self.actualizar_analisis_imagen()
         else:
             self.sidebar.set_nombre_archivo("Error al cargar la previsualización del video.", "red")
@@ -396,6 +612,12 @@ class AngleDetectorApp(ctk.CTk):
         color_tronco_bgr = COLOR_PALETTE.get(self.sidebar.get_color_tronco_name(), ROSADO)
         color_cabeza_bgr = COLOR_PALETTE.get(self.sidebar.get_color_cabeza_name(), ROSADO)
         color_brazo_bgr = COLOR_PALETTE.get(self.sidebar.get_color_brazo_name(), ROSADO)
+        color_muneca_bgr = COLOR_PALETTE.get(self.sidebar.get_color_muneca_name(), ROSADO)
+        
+        mostrar_tronco = self.sidebar.get_mostrar_tronco()
+        mostrar_cabeza = self.sidebar.get_mostrar_cabeza()
+        mostrar_brazo = self.sidebar.get_mostrar_brazo()
+        mostrar_muneca = self.sidebar.get_mostrar_muneca()
         
         # Calcular tiempo de video/reproducción y FPS
         if self.file_type == "video" and frame_idx is not None and self.video_thread is not None:
@@ -406,18 +628,23 @@ class AngleDetectorApp(ctk.CTk):
             t = 0.0
 
         if self.current_landmarks and not self.tracking_lost:
-            p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
+            p_hombro, p_cadera, p_oreja, p_codo, p_ojo, p_muneca, p_mano, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
             if self.punto_cuello_manual is not None:
                 angulo_tronco = calcular_flexion_tronco(self.punto_cuello_manual, p_cadera)
             else:
                 angulo_tronco = None
             angulo_cabeza = calcular_angulo_cabeza(p_oreja, p_ojo)
             angulo_cuello = angulo_cabeza - angulo_tronco if angulo_tronco is not None else None
-            angulo_hombro = calcular_flexion_hombro(p_cadera, p_hombro, p_codo)
+            angulo_hombro = calcular_flexion_hombro(p_hombro, p_codo, p_muneca)
+            angulo_muneca = calcular_flexion_muneca(p_codo, p_muneca, p_mano)
             
             # Lógica de segmentos de postura
             if self.file_type == "video" and frame_idx is not None:
-                tiempo_postura = self.tracker.update_pose(frame_idx, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado_usado, fps)
+                tiempo_postura = self.tracker.update_pose(
+                    frame_idx, angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, lado_usado, fps, angulo_muneca=angulo_muneca,
+                    p_cadera=p_cadera, p_hombro=p_hombro, p_oreja=p_oreja, p_codo=p_codo, p_ojo=p_ojo, p_muneca=p_muneca, p_mano=p_mano,
+                    p_cuello_manual=self.punto_cuello_manual
+                )
             else:
                 tiempo_postura = 0.0
 
@@ -426,6 +653,7 @@ class AngleDetectorApp(ctk.CTk):
                 "color_tronco": color_tronco_bgr,
                 "color_cabeza": color_cabeza_bgr,
                 "color_brazo": color_brazo_bgr,
+                "color_muneca": color_muneca_bgr,
                 "color_texto": BLANCO,
                 "grosor_lineas": 3,
                 "grosor_tronco": 5,
@@ -441,13 +669,18 @@ class AngleDetectorApp(ctk.CTk):
                 "radio_codo": 22,
                 "transparencia_arco": 0.28,
                 "dibujar_texto": True,
-                "es_referencia": False
+                "es_referencia": False,
+                "mostrar_tronco": mostrar_tronco,
+                "mostrar_cabeza": mostrar_cabeza,
+                "mostrar_brazo": mostrar_brazo,
+                "mostrar_muneca": mostrar_muneca
             }
             
             dibujar_analisis_completo(
                 frame_a_dibujar, p_cadera, p_hombro, p_oreja, p_codo, p_ojo,
                 angulo_tronco, angulo_cabeza, angulo_cuello, angulo_hombro, config=dibujo_config,
-                punto_cuello_manual=self.punto_cuello_manual
+                punto_cuello_manual=self.punto_cuello_manual,
+                muneca=p_muneca, mano=p_mano, angulo_muneca=angulo_muneca
             )
             self.current_processed_frame = frame_a_dibujar
             
@@ -458,7 +691,8 @@ class AngleDetectorApp(ctk.CTk):
                 angulo_cuello=angulo_cuello, 
                 angulo_hombro=angulo_hombro, 
                 lado=lado_usado, 
-                tiempo_actual=tiempo_postura
+                tiempo_actual=tiempo_postura,
+                angulo_muneca=angulo_muneca
             )
         else:
             if self.tracking_lost:
@@ -496,8 +730,9 @@ class AngleDetectorApp(ctk.CTk):
             if self.video_thread.paused:
                 self.video_thread.paused = False
                 self.sidebar.configurar_estados_reproduccion(is_playing=True)
+                self.btn_timeline_play.configure(text="⏸")
             return
-
+ 
         # Validar selección de la base del cuello
         if self.punto_cuello_manual is None:
             messagebox.showwarning(
@@ -514,21 +749,30 @@ class AngleDetectorApp(ctk.CTk):
             except queue.Empty:
                 break
                 
-        # Iniciar hilo secundario con el punto del cuello manual
+        # Obtener el frame de inicio del slider
+        start_frame = int(round(self.sld_timeline.get()))
+        
+        # Iniciar hilo secundario con el offset de cuello manual precalculado (u, v) y frame de inicio
         self.video_thread = VideoProcessorThread(
             file_path=self.current_filepath,
             detector=self.detector,
             result_queue=self.result_queue,
-            punto_cuello_manual=self.punto_cuello_manual
+            punto_cuello_manual=self.punto_cuello_manual,
+            u=self.punto_cuello_u,
+            v=self.punto_cuello_v,
+            lado_activo=self.punto_cuello_lado_activo,
+            start_frame=start_frame
         )
         self.video_thread.start()
         self.sidebar.configurar_estados_reproduccion(is_playing=True)
+        self.btn_timeline_play.configure(text="⏸")
 
     def pause_video(self):
         if self.video_thread and self.video_thread.is_alive():
             self.video_thread.paused = True
             self.sidebar.configurar_estados_reproduccion(is_playing=False)
-
+            self.btn_timeline_play.configure(text="▶")
+ 
     def stop_video_thread(self):
         if self.video_thread:
             self.video_thread.stop()
@@ -541,6 +785,7 @@ class AngleDetectorApp(ctk.CTk):
             except queue.Empty:
                 break
         self.sidebar.configurar_estados_archivo(self.file_type)
+        self.btn_timeline_play.configure(text="▶")
 
     def poll_results(self):
         try:
@@ -551,6 +796,7 @@ class AngleDetectorApp(ctk.CTk):
                 if status == "EOF":
                     self.stop_video_thread()
                     self.sidebar.configurar_estados_detenido()
+                    self.btn_timeline_play.configure(text="▶")
                     break
                     
                 if status == "FRAME":
@@ -627,23 +873,48 @@ class AngleDetectorApp(ctk.CTk):
                 return
             h, w, _ = self.raw_current_frame.shape
             lado_config = self.sidebar.get_lado()
-            p_hombro, p_cadera, p_oreja, p_codo, p_ojo, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
+            p_hombro, p_cadera, p_oreja, p_codo, p_ojo, p_muneca, p_mano, lado_usado = obtener_landmarks_analisis(self.current_landmarks, lado_config, w, h)
             if self.punto_cuello_manual is not None:
                 angulo_tronco = calcular_flexion_tronco(self.punto_cuello_manual, p_cadera)
             else:
                 angulo_tronco = None
             angulo_cabeza = calcular_angulo_cabeza(p_oreja, p_ojo)
             angulo_cuello = angulo_cabeza - angulo_tronco if angulo_tronco is not None else None
-            angulo_hombro = calcular_flexion_hombro(p_cadera, p_hombro, p_codo)
+            angulo_hombro = calcular_flexion_hombro(p_hombro, p_codo, p_muneca)
+            angulo_muneca = calcular_flexion_muneca(p_codo, p_muneca, p_mano)
             
+            def round_coords(p):
+                if p is None:
+                    return "--", "--"
+                return int(round(p[0])), int(round(p[1]))
+
+            cx, cy = round_coords(p_cadera)
+            hx, hy = round_coords(p_hombro)
+            ox, oy = round_coords(p_oreja)
+            cox, coy = round_coords(p_codo)
+            ojx, ojy = round_coords(p_ojo)
+            mx, my = round_coords(p_muneca)
+            manx, many = round_coords(p_mano)
+            cux, cuy = round_coords(self.punto_cuello_manual)
+
             frames_data = [{
-                "angulo_tronco": int(round(angulo_tronco)),
-                "angulo_cabeza": int(round(angulo_cabeza)),
-                "angulo_cuello": int(round(angulo_cuello)),
-                "angulo_hombro": int(round(angulo_hombro)),
+                "angulo_tronco": int(round(angulo_tronco)) if angulo_tronco is not None else "--",
+                "angulo_cabeza": int(round(angulo_cabeza)) if angulo_cabeza is not None else "--",
+                "angulo_cuello": int(round(angulo_cuello)) if angulo_cuello is not None else "--",
+                "angulo_hombro": int(round(angulo_hombro)) if angulo_hombro is not None else "--",
+                "angulo_muneca": int(round(angulo_muneca)) if angulo_muneca is not None else "--",
                 "lado_usado": lado_usado,
                 "tiempo_postura": 0.0,
-                "frames_acumulados": 1
+                "frames_acumulados": 1,
+                # Coordinates
+                "cadera_x": cx, "cadera_y": cy,
+                "hombro_x": hx, "hombro_y": hy,
+                "oreja_x": ox, "oreja_y": oy,
+                "codo_x": cox, "codo_y": coy,
+                "ojo_x": ojx, "ojo_y": ojy,
+                "muneca_x": mx, "muneca_y": my,
+                "mano_x": manx, "mano_y": many,
+                "cuello_manual_x": cux, "cuello_manual_y": cuy
             }]
 
         try:
@@ -678,7 +949,21 @@ class AngleDetectorApp(ctk.CTk):
         coords = self.visualizer.get_click_coords(event)
         if coords:
             self.punto_cuello_manual = coords
+            self.punto_cuello_manual_es_auto = False
             self.tracking_lost = False
+            
+            # Recalcular el offset basado en este nuevo clic
+            self.recalcular_offset_cuello()
+            
+            # Sincronizar el nuevo punto con el hilo si el video está pausado
+            if self.video_thread:
+                self.video_thread.set_offset(
+                    self.punto_cuello_u,
+                    self.punto_cuello_v,
+                    self.punto_cuello_lado_activo,
+                    coords
+                )
+                
             # Re-procesar para dibujar inmediatamente el punto en el visor
             self.actualizar_analisis_imagen()
 
@@ -689,7 +974,29 @@ class AngleDetectorApp(ctk.CTk):
         coords = self.visualizer_ref.get_click_coords(event)
         if coords:
             self.punto_cuello_manual_ref = coords
+            self.punto_cuello_manual_ref_es_auto = False
             self.actualizar_analisis_imagen_ref()
+
+    def _on_timeline_play_click(self):
+        if self.file_type != "video" or not self.current_filepath:
+            return
+        is_playing = self.video_thread and self.video_thread.is_alive() and not self.video_thread.paused
+        if is_playing:
+            self.pause_video()
+            self.btn_timeline_play.configure(text="▶")
+        else:
+            self.play_video()
+            self.btn_timeline_play.configure(text="⏸")
+
+    def _on_timeline_stop_click(self):
+        if self.file_type != "video":
+            return
+        self.stop_video_thread()
+        self.tracker.reset()
+        self.dashboard.reset_valores()
+        self.sld_timeline.set(0)
+        self.btn_timeline_play.configure(text="▶")
+        self.previsualizar_primer_frame()
 
     def _on_timeline_seek(self, value):
         """Maneja el arrastre del slider de timeline para buscar un frame específico."""
@@ -716,6 +1023,20 @@ class AngleDetectorApp(ctk.CTk):
             self.raw_current_frame = frame
             self.visualizer.raw_current_frame = frame
             self.current_landmarks = self.detector.procesar_frame(frame)
+            
+            # Recalcular el punto del cuello en el frame buscado si es automático
+            if self.punto_cuello_manual_es_auto and self.current_landmarks:
+                h, w, _ = frame.shape
+                lado_config = self.sidebar.get_lado()
+                self.punto_cuello_manual = self.calcular_punto_cuello_automatico(
+                    self.current_landmarks, lado_config, w, h
+                )
+                self.recalcular_offset_cuello()
+            elif self.current_landmarks:
+                # Si es manual, aplicar el offset sobre el cuerpo en este nuevo frame para que se mueva en el visor
+                h, w, _ = frame.shape
+                self.punto_cuello_manual = self.calcular_punto_cuello_desde_offset(self.current_landmarks, w, h)
+                
             self.actualizar_analisis_imagen()
 
             # Actualizar etiqueta de tiempo

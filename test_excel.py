@@ -24,6 +24,7 @@ class TestExcelExporter(unittest.TestCase):
                 "angulo_cabeza": 45,
                 "angulo_cuello": 25,
                 "angulo_hombro": 15,
+                "angulo_muneca": 12,
                 "lado_usado": "Derecho",
                 "tiempo_postura": 0.033,
                 "frames_acumulados": 1
@@ -55,7 +56,7 @@ class TestExcelExporter(unittest.TestCase):
         headers = [cell.value for cell in sheet[1]]
         expected_headers = [
             "Nombre de la persona",
-            "Nombre del video",
+            "Lado leído",
             "Ángulo de referencia del tronco (α)",
             "Ángulo del tronco del video",
             "Ángulo del tronco ajustado",
@@ -64,28 +65,29 @@ class TestExcelExporter(unittest.TestCase):
             "Ángulo de la cabeza ajustado",
             "Ángulo del cuello ajustado",
             "Ángulo de brazo",
-            "Lado leído",
+            "Ángulo de la muñeca",
             "Tiempo de postura",
             "Frames acumulados",
-            "Fecha y hora del análisis"
+            "Nombre del archivo"
         ]
         self.assertEqual(headers, expected_headers)
         
         # Verificar datos escritos en la fila 2
         row_data = [cell.value for cell in sheet[2]]
         self.assertEqual(row_data[0], "Juan Pérez")
-        self.assertEqual(row_data[1], "test_video.mp4")
+        self.assertEqual(row_data[1], "Derecho")
         self.assertEqual(row_data[2], 15)  # alfa
-        self.assertEqual(row_data[3], 20)  # angulo_tronco_video
+        self.assertEqual(row_data[3], 20)  # angulo del tronco del video
         self.assertEqual(row_data[4], 5)   # tronco_ajustado (20 - 15)
         self.assertEqual(row_data[5], 10)  # beta
-        self.assertEqual(row_data[6], 45)  # angulo_cabeza_video
+        self.assertEqual(row_data[6], 45)  # angulo de la cabeza del video
         self.assertEqual(row_data[7], 35)  # cabeza_ajustada (45 - 10)
         self.assertEqual(row_data[8], 30)  # cuello_ajustado (35 - 5)
         self.assertEqual(row_data[9], 15)  # angulo_hombro
-        self.assertEqual(row_data[10], "Derecho")
+        self.assertEqual(row_data[10], 12)  # angulo_muneca
         self.assertAlmostEqual(row_data[11], 0.033, places=3)
         self.assertEqual(row_data[12], 1)
+        self.assertEqual(row_data[13], "test_video.mp4")
         
         wb.close()
 
@@ -125,10 +127,10 @@ class TestExcelExporter(unittest.TestCase):
         
         row_data = [cell.value for cell in sheet[2]]
         self.assertEqual(row_data[2], 15)    # alfa
-        self.assertEqual(row_data[3], 20)    # angulo_tronco_video
+        self.assertEqual(row_data[3], 20)    # angulo del tronco del video
         self.assertEqual(row_data[4], 5)     # tronco_ajustado (20 - 15)
         self.assertEqual(row_data[5], "--")  # beta es None
-        self.assertEqual(row_data[6], "--")  # angulo_cabeza_video es None
+        self.assertEqual(row_data[6], "--")  # cabeza del video es None
         self.assertEqual(row_data[7], "--")  # cabeza_ajustada es "--"
         self.assertEqual(row_data[8], "--")  # cuello_ajustado es "--"
         

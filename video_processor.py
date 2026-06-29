@@ -6,7 +6,8 @@ import math
 
 class VideoProcessorThread(threading.Thread):
     """Hilo secundario para procesar video sin congelar la interfaz."""
-    def __init__(self, file_path, detector, result_queue, punto_cuello_manual=None):
+    def __init__(self, file_path, detector, result_queue, punto_cuello_manual=None, 
+                 u=0.0, v=0.0, lado_activo="Derecho", start_frame=0):
         super().__init__()
         self.file_path = file_path
         self.detector = detector
@@ -27,12 +28,27 @@ class VideoProcessorThread(threading.Thread):
         # Limitador de FPS
         self.frame_delay = 1.0 / self.fps
 
-        # Tracker OpenCV CSRT
-        self.tracker_cv = None
+        # Parámetros de proyección local (Base Ortogonal)
+        self.u = u
+        self.v = v
+        self.lado_activo = lado_activo
+        self.start_frame = start_frame
         self.tracking_lost = False
 
+    def set_offset(self, u, v, lado_activo, punto_cuello_manual):
+        """Permite actualizar la relación del offset si se cambia el punto en pausa."""
+        self.u = u
+        self.v = v
+        self.lado_activo = lado_activo
+        self.punto_cuello_manual = punto_cuello_manual
+
     def run(self):
-        frame_idx = 0
+        if self.start_frame > 0:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.start_frame)
+            frame_idx = self.start_frame
+        else:
+            frame_idx = 0
+            
         while self.running:
             if self.paused:
                 time.sleep(0.1)
@@ -45,26 +61,37 @@ class VideoProcessorThread(threading.Thread):
                 self.result_queue.put(("EOF", None, None, None, None))
                 break
                 
-            # OpenCV CSRT tracking update
-            if self.punto_cuello_manual is not None and not self.tracking_lost:
-                if self.tracker_cv is None:
-                    self.tracker_cv = cv2.TrackerCSRT_create()
-                    px, py = self.punto_cuello_manual
-                    # Caja delimitadora pequeña centradada en el punto de cuello
-                    bbox = (int(px - 15), int(py - 15), 30, 30)
-                    self.tracker_cv.init(frame, bbox)
-                else:
-                    success, bbox = self.tracker_cv.update(frame)
-                    if success:
-                        tx = bbox[0] + bbox[2] / 2
-                        ty = bbox[1] + bbox[3] / 2
-                        self.punto_cuello_manual = (tx, ty)
-                    else:
-                        self.tracking_lost = True
-                        self.punto_cuello_manual = None
-
-            # Procesar frame con MediaPipe
+            # Procesar frame con MediaPipe primero
             landmarks = self.detector.procesar_frame(frame)
+
+            # Seguimiento relativo a la silueta (MediaPipe Pose - Base Ortogonal)
+            if landmarks is not None and self.punto_cuello_manual is not None:
+                hombro_izq = landmarks[11]
+                hombro_der = landmarks[12]
+                
+                x_izq, y_izq = hombro_izq.x * self.width, hombro_izq.y * self.height
+                x_der, y_der = hombro_der.x * self.width, hombro_der.y * self.height
+                
+                # Centro del cuello estimado
+                xn = (x_izq + x_der) / 2.0
+                yn = (y_izq + y_der) / 2.0
+
+                # Hombro activo
+                xs = x_izq if self.lado_activo == "Izquierdo" else x_der
+                ys = y_izq if self.lado_activo == "Izquierdo" else y_der
+                
+                # Vector V de cuello a hombro
+                dx = xs - xn
+                dy = ys - yn
+                
+                # Reconstruir la posición del punto manual usando la base local
+                tx = xn + self.u * dx - self.v * dy
+                ty = yn + self.u * dy + self.v * dx
+                
+                self.punto_cuello_manual = (tx, ty)
+                self.tracking_lost = False
+            elif self.punto_cuello_manual is None:
+                self.tracking_lost = True
             
             # Colocar en la cola de resultados
             if self.result_queue.full():

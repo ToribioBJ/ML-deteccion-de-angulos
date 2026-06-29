@@ -65,6 +65,13 @@ class TestPostureTracker(unittest.TestCase):
         self.assertIsNone(tracker.frames_data[0]["angulo_cuello"])
         self.assertEqual(tracker.frames_data[0]["angulo_cabeza"], 67)
 
+    def test_update_pose_with_wrist_angle(self):
+        tracker = PostureTracker()
+        fps = 30.0
+        dur = tracker.update_pose(0, 12.0, 67.0, 56.0, 48.0, "Derecho", fps, angulo_muneca=15.0)
+        self.assertAlmostEqual(dur, 1 / 30.0)
+        self.assertEqual(tracker.frames_data[0]["angulo_muneca"], 15)
+
     def test_clear_history(self):
         tracker = PostureTracker()
         tracker.update_pose(0, 10.0, 15.0, 5.0, 30.0, "Izquierdo")

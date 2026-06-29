@@ -22,15 +22,15 @@ class SidebarFrame(ctk.CTkFrame):
         self.lbl_titulo = ctk.CTkLabel(
             self, 
             text="DETECTOR DE ÁNGULOS", 
-            font=ctk.CTkFont(family="Helvetica", size=20, weight="bold"),
+            font=ctk.CTkFont(family="Helvetica", size=18, weight="bold"),
             text_color="#00bfff"
         )
-        self.lbl_titulo.grid(row=0, column=0, padx=20, pady=(25, 5), sticky="w")
+        self.lbl_titulo.grid(row=0, column=0, padx=20, pady=(15, 2), sticky="w")
         
 
         # --- SECCIÓN: CARGA DE ARCHIVO ---
         self.frm_archivo = ctk.CTkFrame(self, fg_color="transparent")
-        self.frm_archivo.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+        self.frm_archivo.grid(row=2, column=0, padx=20, pady=5, sticky="ew")
         
         self.btn_referencia = ctk.CTkButton(
             self.frm_archivo,
@@ -38,19 +38,19 @@ class SidebarFrame(ctk.CTkFrame):
             command=on_seleccionar_referencia,
             fg_color="#a855f7",
             hover_color="#9333ea",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            height=38
+            font=ctk.CTkFont(size=12, weight="bold"),
+            height=30
         )
-        self.btn_referencia.pack(fill="x", pady=(0, 5))
+        self.btn_referencia.pack(fill="x", pady=(0, 4))
         
         self.btn_seleccionar = ctk.CTkButton(
             self.frm_archivo, 
             text="Seleccionar Imagen / Video", 
             command=on_seleccionar,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            height=38
+            font=ctk.CTkFont(size=12, weight="bold"),
+            height=30
         )
-        self.btn_seleccionar.pack(fill="x", pady=(0, 5))
+        self.btn_seleccionar.pack(fill="x", pady=(0, 4))
 
         
         self.lbl_archivo = ctk.CTkLabel(
@@ -64,101 +64,175 @@ class SidebarFrame(ctk.CTkFrame):
 
         # Separador visual 1
         self.separador1 = ctk.CTkFrame(self, height=2, fg_color="#333333")
-        self.separador1.grid(row=3, column=0, padx=20, pady=15, sticky="ew")
+        self.separador1.grid(row=3, column=0, padx=20, pady=6, sticky="ew")
 
         # --- SECCIÓN: CONFIGURACIÓN DE ANÁLISIS ---
         self.lbl_seccion_conf = ctk.CTkLabel(
             self, 
             text="Configuración de Análisis", 
-            font=ctk.CTkFont(size=14, weight="bold")
+            font=ctk.CTkFont(size=13, weight="bold")
         )
-        self.lbl_seccion_conf.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="w")
+        self.lbl_seccion_conf.grid(row=4, column=0, padx=20, pady=(0, 4), sticky="w")
 
         # Contenedor para la configuración
         self.frm_analisis = ctk.CTkFrame(self, fg_color="transparent")
         self.frm_analisis.grid(row=5, column=0, padx=20, pady=0, sticky="ew")
 
         # Lado del cuerpo
-        self.lbl_lado = ctk.CTkLabel(self.frm_analisis, text="Lado del cuerpo a medir:")
-        self.lbl_lado.pack(anchor="w", padx=5, pady=(0, 2))
+        self.frm_lado = ctk.CTkFrame(self.frm_analisis, fg_color="transparent")
+        self.frm_lado.pack(fill="x", padx=5, pady=(0, 4))
+        self.lbl_lado = ctk.CTkLabel(self.frm_lado, text="Lado:", font=ctk.CTkFont(size=11, weight="bold"), width=50, anchor="w")
+        self.lbl_lado.pack(side="left", padx=(0, 5))
         self.opt_lado = ctk.CTkOptionMenu(
-            self.frm_analisis, 
+            self.frm_lado, 
             values=["Auto", "Izquierdo", "Derecho"],
-            command=on_lado_cambiado
+            command=on_lado_cambiado,
+            height=26
         )
-        self.opt_lado.pack(fill="x", padx=5, pady=(0, 15))
+        self.opt_lado.pack(side="left", fill="x", expand=True)
         self.opt_lado.set("Auto")
 
-        # Color Tronco y Base Cuello
-        self.lbl_color_tronco = ctk.CTkLabel(self.frm_analisis, text="Color Angulo Del Tronco:")
-        self.lbl_color_tronco.pack(anchor="w", padx=5, pady=(0, 2))
+        # Fila Tronco
+        self.frm_row_tronco = ctk.CTkFrame(self.frm_analisis, fg_color="transparent")
+        self.frm_row_tronco.pack(fill="x", padx=5, pady=(0, 4))
+        self.lbl_color_tronco = ctk.CTkLabel(self.frm_row_tronco, text="Tronco:", font=ctk.CTkFont(size=11, weight="bold"), width=50, anchor="w")
+        self.lbl_color_tronco.pack(side="left", padx=(0, 5))
         self.opt_color_tronco = ctk.CTkOptionMenu(
-            self.frm_analisis, 
+            self.frm_row_tronco, 
             values=["Rosado", "Celeste", "Verde Neón", "Naranja", "Amarillo"],
-            command=on_color_cambiado
+            command=on_color_cambiado,
+            height=26
         )
-        self.opt_color_tronco.pack(fill="x", padx=5, pady=(0, 8))
-        self.opt_color_tronco.set("Rosado")
+        self.opt_color_tronco.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.opt_color_tronco.set("Celeste")
+        
+        self.chk_mostrar_tronco = ctk.CTkCheckBox(
+            self.frm_row_tronco,
+            text="Mostrar",
+            command=lambda: on_color_cambiado(None),
+            font=ctk.CTkFont(size=11),
+            checkbox_width=16,
+            checkbox_height=16
+        )
+        self.chk_mostrar_tronco.pack(side="left")
+        self.chk_mostrar_tronco.select()
 
-        # Color Cabeza
-        self.lbl_color_cabeza = ctk.CTkLabel(self.frm_analisis, text="Color Angulo De La Cabeza:")
-        self.lbl_color_cabeza.pack(anchor="w", padx=5, pady=(0, 2))
+        # Fila Cabeza
+        self.frm_row_cabeza = ctk.CTkFrame(self.frm_analisis, fg_color="transparent")
+        self.frm_row_cabeza.pack(fill="x", padx=5, pady=(0, 4))
+        self.lbl_color_cabeza = ctk.CTkLabel(self.frm_row_cabeza, text="Cabeza:", font=ctk.CTkFont(size=11, weight="bold"), width=50, anchor="w")
+        self.lbl_color_cabeza.pack(side="left", padx=(0, 5))
         self.opt_color_cabeza = ctk.CTkOptionMenu(
-            self.frm_analisis, 
+            self.frm_row_cabeza, 
             values=["Rosado", "Celeste", "Verde Neón", "Naranja", "Amarillo"],
-            command=on_color_cambiado
+            command=on_color_cambiado,
+            height=26
         )
-        self.opt_color_cabeza.pack(fill="x", padx=5, pady=(0, 8))
-        self.opt_color_cabeza.set("Rosado")
+        self.opt_color_cabeza.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.opt_color_cabeza.set("Amarillo")
+        
+        self.chk_mostrar_cabeza = ctk.CTkCheckBox(
+            self.frm_row_cabeza,
+            text="Mostrar",
+            command=lambda: on_color_cambiado(None),
+            font=ctk.CTkFont(size=11),
+            checkbox_width=16,
+            checkbox_height=16
+        )
+        self.chk_mostrar_cabeza.pack(side="left")
+        self.chk_mostrar_cabeza.select()
 
-        # Color Brazo
-        self.lbl_color_brazo = ctk.CTkLabel(self.frm_analisis, text="Color Angulo Del Brazo:")
-        self.lbl_color_brazo.pack(anchor="w", padx=5, pady=(0, 2))
+        # Fila Brazo
+        self.frm_row_brazo = ctk.CTkFrame(self.frm_analisis, fg_color="transparent")
+        self.frm_row_brazo.pack(fill="x", padx=5, pady=(0, 4))
+        self.lbl_color_brazo = ctk.CTkLabel(self.frm_row_brazo, text="Brazo:", font=ctk.CTkFont(size=11, weight="bold"), width=50, anchor="w")
+        self.lbl_color_brazo.pack(side="left", padx=(0, 5))
         self.opt_color_brazo = ctk.CTkOptionMenu(
-            self.frm_analisis, 
+            self.frm_row_brazo, 
             values=["Rosado", "Celeste", "Verde Neón", "Naranja", "Amarillo"],
-            command=on_color_cambiado
+            command=on_color_cambiado,
+            height=26
         )
-        self.opt_color_brazo.pack(fill="x", padx=5, pady=(0, 8))
+        self.opt_color_brazo.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self.opt_color_brazo.set("Rosado")
+        
+        self.chk_mostrar_brazo = ctk.CTkCheckBox(
+            self.frm_row_brazo,
+            text="Mostrar",
+            command=lambda: on_color_cambiado(None),
+            font=ctk.CTkFont(size=11),
+            checkbox_width=16,
+            checkbox_height=16
+        )
+        self.chk_mostrar_brazo.pack(side="left")
+        self.chk_mostrar_brazo.select()
+
+        # Fila Muñeca
+        self.frm_row_muneca = ctk.CTkFrame(self.frm_analisis, fg_color="transparent")
+        self.frm_row_muneca.pack(fill="x", padx=5, pady=(0, 4))
+        self.lbl_color_muneca = ctk.CTkLabel(self.frm_row_muneca, text="Muñeca:", font=ctk.CTkFont(size=11, weight="bold"), width=50, anchor="w")
+        self.lbl_color_muneca.pack(side="left", padx=(0, 5))
+        self.opt_color_muneca = ctk.CTkOptionMenu(
+            self.frm_row_muneca, 
+            values=["Rosado", "Celeste", "Verde Neón", "Naranja", "Amarillo"],
+            command=on_color_cambiado,
+            height=26
+        )
+        self.opt_color_muneca.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.opt_color_muneca.set("Verde Neón")
+        
+        self.chk_mostrar_muneca = ctk.CTkCheckBox(
+            self.frm_row_muneca,
+            text="Mostrar",
+            command=lambda: on_color_cambiado(None),
+            font=ctk.CTkFont(size=11),
+            checkbox_width=16,
+            checkbox_height=16
+        )
+        self.chk_mostrar_muneca.pack(side="left")
+        self.chk_mostrar_muneca.select()
 
         # Confianza del detector
-        self.lbl_confianza = ctk.CTkLabel(self.frm_analisis, text="Confianza mínima: 0.50")
-        self.lbl_confianza.pack(anchor="w", padx=5, pady=(5, 2))
+        self.frm_confianza = ctk.CTkFrame(self.frm_analisis, fg_color="transparent")
+        self.frm_confianza.pack(fill="x", padx=5, pady=(2, 2))
+        self.lbl_confianza = ctk.CTkLabel(self.frm_confianza, text="Confianza: 0.50", font=ctk.CTkFont(size=11, weight="bold"))
+        self.lbl_confianza.pack(side="left", padx=(0, 5))
         self.sld_confianza = ctk.CTkSlider(
-            self.frm_analisis, 
+            self.frm_confianza, 
             from_=0.1, 
             to=0.9, 
             number_of_steps=16,
-            command=self._on_slider_moved
+            command=self._on_slider_moved,
+            height=16
         )
-        self.sld_confianza.pack(fill="x", padx=5, pady=(0, 10))
+        self.sld_confianza.pack(side="left", fill="x", expand=True)
         self.sld_confianza.set(0.5)
         self.on_confianza_cambiada_cb = on_confianza_cambiada
 
         # Separador visual 2
         self.separador_excel = ctk.CTkFrame(self, height=2, fg_color="#333333")
-        self.separador_excel.grid(row=6, column=0, padx=20, pady=15, sticky="ew")
+        self.separador_excel.grid(row=6, column=0, padx=20, pady=6, sticky="ew")
 
         # --- SECCIÓN: REGISTRO DE DATOS ---
         self.lbl_seccion_excel = ctk.CTkLabel(
             self, 
             text="Registro de Datos (Excel)", 
-            font=ctk.CTkFont(size=14, weight="bold")
+            font=ctk.CTkFont(size=13, weight="bold")
         )
-        self.lbl_seccion_excel.grid(row=7, column=0, padx=20, pady=(0, 10), sticky="w")
+        self.lbl_seccion_excel.grid(row=7, column=0, padx=20, pady=(0, 4), sticky="w")
 
         self.frm_excel = ctk.CTkFrame(self, fg_color="transparent")
         self.frm_excel.grid(row=8, column=0, padx=20, pady=0, sticky="ew")
 
         # Campo nombre
         self.lbl_nombre = ctk.CTkLabel(self.frm_excel, text="Nombre de la Persona:")
-        self.lbl_nombre.pack(anchor="w", padx=5, pady=(0, 2))
+        self.lbl_nombre.pack(anchor="w", padx=5, pady=(0, 1))
         self.ent_nombre = ctk.CTkEntry(
             self.frm_excel, 
-            placeholder_text="Ej. Juan Pérez"
+            placeholder_text="Ej. Juan Pérez",
+            height=28
         )
-        self.ent_nombre.pack(fill="x", padx=5, pady=(0, 10))
+        self.ent_nombre.pack(fill="x", padx=5, pady=(0, 6))
 
         # Botón registrar
         self.btn_registrar_excel = ctk.CTkButton(
@@ -167,13 +241,14 @@ class SidebarFrame(ctk.CTkFrame):
             command=on_registrar_excel,
             fg_color="#00bfff", 
             hover_color="#008b8b",
-            font=ctk.CTkFont(weight="bold")
+            font=ctk.CTkFont(weight="bold"),
+            height=30
         )
-        self.btn_registrar_excel.pack(fill="x", padx=5, pady=(0, 5))
+        self.btn_registrar_excel.pack(fill="x", padx=5, pady=(0, 4))
 
         # --- SECCIÓN: CONTROLES DE REPRODUCCIÓN (PARA VIDEO) ---
         self.frm_controles_video = ctk.CTkFrame(self, fg_color="transparent")
-        self.frm_controles_video.grid(row=9, column=0, padx=20, pady=15, sticky="ew")
+        self.frm_controles_video.grid(row=9, column=0, padx=20, pady=8, sticky="ew")
         
         self.btn_play = ctk.CTkButton(
             self.frm_controles_video, 
@@ -182,7 +257,8 @@ class SidebarFrame(ctk.CTkFrame):
             hover_color="#059669",
             command=on_play,
             state="disabled",
-            font=ctk.CTkFont(weight="bold")
+            font=ctk.CTkFont(weight="bold"),
+            height=30
         )
         self.btn_play.pack(side="left", expand=True, padx=(0, 5), fill="x")
         
@@ -193,7 +269,8 @@ class SidebarFrame(ctk.CTkFrame):
             hover_color="#d97706",
             command=on_pause,
             state="disabled",
-            font=ctk.CTkFont(weight="bold")
+            font=ctk.CTkFont(weight="bold"),
+            height=30
         )
         self.btn_pause.pack(side="left", expand=True, padx=(5, 0), fill="x")
 
@@ -218,6 +295,21 @@ class SidebarFrame(ctk.CTkFrame):
 
     def get_color_brazo_name(self):
         return self.opt_color_brazo.get()
+
+    def get_color_muneca_name(self):
+        return self.opt_color_muneca.get()
+
+    def get_mostrar_tronco(self):
+        return self.chk_mostrar_tronco.get() == 1
+
+    def get_mostrar_cabeza(self):
+        return self.chk_mostrar_cabeza.get() == 1
+
+    def get_mostrar_brazo(self):
+        return self.chk_mostrar_brazo.get() == 1
+
+    def get_mostrar_muneca(self):
+        return self.chk_mostrar_muneca.get() == 1
 
     def get_confianza(self):
         return self.sld_confianza.get()
